@@ -269,14 +269,22 @@ def test_console_ws_backfill_command_and_live_stream(tmp_path: Path) -> None:
             assert caught_up["seq"] >= first["line"]["seq"]
 
             ws.send_json({"type": "command", "command": "say ws"})
-            result = recv_until(ws, lambda m: m["type"] == "command_result")
-            assert result["accepted"] is True
-
-            echo = recv_until(
-                ws,
-                lambda m: m["type"] == "log" and "Executing command: say ws" in m["line"]["line"],
-            )
-            assert echo["line"]["seq"] > caught_up["seq"]
+            # The echoed log line and command_result may arrive in either order.
+            result: dict[str, Any] | None = None
+            echo: dict[str, Any] | None = None
+            for _ in range(200):
+                message = ws.receive_json()
+                if message["type"] == "command_result":
+                    result = message
+                elif (
+                    message["type"] == "log"
+                    and "Executing command: say ws" in message["line"]["line"]
+                ):
+                    echo = message
+                if result is not None and echo is not None:
+                    break
+            assert result is not None and result["accepted"] is True
+            assert echo is not None and echo["line"]["seq"] > caught_up["seq"]
 
 
 def test_console_ws_hello_since_seq_replays_from_start(tmp_path: Path) -> None:

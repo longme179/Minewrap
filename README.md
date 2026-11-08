@@ -14,7 +14,7 @@ remote.
 
 ## Status
 
-**Phase 4 — Discord notifier.** This repository currently contains:
+**Phase 5 — desktop GUI.** This repository currently contains:
 
 - `ARCHITECTURE.md` — design, state machine, data flow, security model.
 - `packages/mcpanel_common` — the pydantic models both sides share: the daemon
@@ -30,13 +30,19 @@ remote.
   notifier (edit-in-place or new-message, colour-coded status embed with
   recent logs, ANSI/IP/user-regex redaction, 429/5xx handling, debounced
   state-change posts). See `docs/discord.md`.
+- `packages/mcpanel_gui` — PySide6 client: node list with one-click local
+  node, status panel + start/stop/restart, live console (pause-on-scroll-up,
+  command history), settings tab (launch/probe/restart/Discord + send test).
+  `ApiClient` is Qt-free; tokens live in the OS keyring or a 0600 fallback
+  file; sockets run off the UI thread with reconnect/backoff.
 - `docs/openapi.json` — OpenAPI schema generated from the daemon.
 - `config.example.toml` — the annotated daemon configuration.
 
-`mcpanel-daemon --config config.toml` runs the daemon; the GUI lands in Phase 5.
-See the phase checklist below.
+`mcpanel-daemon --config config.toml` runs the daemon and `mcpanel-gui` the
+client (Phase 6 covers the remaining remote-access setup docs). See the phase
+checklist below.
 
-## Quickstart (daemon)
+## Quickstart (daemon + GUI)
 
 ```sh
 uv sync --all-packages
@@ -44,6 +50,10 @@ cp config.example.toml config.toml     # edit the [[instances]] section
 uv run mcpanel-daemon --config config.toml
 # On first run the API token is printed once and stored in <data_dir>/token (0600).
 curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/v1/instances
+
+# In another terminal:
+uv run mcpanel-gui
+# "Add local node" defaults to http://127.0.0.1:8080; paste the token when asked.
 ```
 
 ## Layout
@@ -52,7 +62,7 @@ curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/v1/instances
 packages/
 ├── mcpanel-common/   # pydantic models: config schema + API contract
 ├── mcpanel-daemon/   # FastAPI daemon (process manager, poller, Discord)
-└── mcpanel-gui/      # PySide6 client (Phase 5)
+└── mcpanel-gui/      # PySide6 client (ApiClient, view models, widgets)
 tests/                # one pytest run for the whole workspace
 docs/                 # openapi.json + guides (remote access, Discord)
 ```
@@ -76,7 +86,7 @@ uv run python -m mcpanel_daemon.openapi > docs/openapi.json   # regenerate schem
 - [x] **2** Status poller and snapshot merging
 - [x] **3** REST/WebSocket API + auth
 - [x] **4** Discord notifier
-- [ ] **5** GUI for a single node
+- [x] **5** GUI for a single node
 - [ ] **6** Multi-node/remote support + docs
 - [ ] **7** Hardening: error paths, graceful shutdown, packaging, examples
 

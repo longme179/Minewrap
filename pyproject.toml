@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [tool.uv.workspace]
-members = ["packages/mcpanel-common", "packages/mcpanel-daemon"]
+members = ["packages/mcpanel-common", "packages/mcpanel-daemon", "packages/mcpanel-gui"]
 
 [dependency-groups]
 dev = [
@@ -32,4 +32,8 @@ testpaths = ["tests"]
 typeCheckingMode = "strict"
 include = ["packages", "tests"]
 exclude = ["**/.venv/**", "**/__pycache__/**"]
-extraPaths = ["packages/mcpanel-common/src", "packages/mcpanel-daemon/src"]
+extraPaths = [
+    "packages/mcpanel-common/src",
+    "packages/mcpanel-daemon/src",
+    "packages/mcpanel-gui/src",
+]
