@@ -163,6 +163,6 @@ def test_interval_ranges_enforced() -> None:
         DaemonConfig.model_validate(data)
 
     data = _base_toml()
-    data["instances"][0]["discord"] = {"interval_seconds": 5}
+    data["instances"][0]["discord"] = {"interval_seconds": 0.05}
     with pytest.raises(ValidationError):
         DaemonConfig.model_validate(data)

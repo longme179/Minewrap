@@ -13,6 +13,7 @@ from mcpanel_common.api import (
     ConfigUpdateRequest,
     DiscordConfigUpdate,
     DiscordConfigView,
+    DiscordTestResponse,
     InstanceConfigView,
     InstanceSnapshot,
     InstanceSummary,
@@ -22,6 +23,7 @@ from mcpanel_common.api import (
 from mcpanel_common.config import DaemonConfig, DiscordConfig, InstanceConfig
 
 from mcpanel_daemon.config_store import save_config
+from mcpanel_daemon.discord import DiscordNotifier
 from mcpanel_daemon.events import EventBus
 from mcpanel_daemon.log_buffer import LogBuffer
 from mcpanel_daemon.log_file import RotatingLogFile
@@ -44,6 +46,7 @@ class ManagedInstance:
     state: InstanceState
     process: ProcessManager
     poller: StatusPoller
+    notifier: DiscordNotifier
 
     def summary(self) -> InstanceSummary:
         self.state.update_process(self.process.status())
@@ -79,6 +82,7 @@ class InstanceManager:
         self._running = True
         for instance in self._instances.values():
             instance.poller.start()
+            await instance.notifier.start()
         for instance in self._instances.values():
             if instance.config.autostart:
                 try:
@@ -93,6 +97,8 @@ class InstanceManager:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        for instance in self._instances.values():
+            await instance.notifier.stop()
         for instance in self._instances.values():
             await instance.poller.stop()
         for instance in self._instances.values():
@@ -184,6 +190,12 @@ class InstanceManager:
         instance.config = new_config
         instance.process.update_config(new_config)
         instance.state.name = new_config.name
+
+        await instance.notifier.stop()
+        instance.notifier = self._make_notifier(instance, new_config.discord)
+        if self._running:
+            await instance.notifier.start()
+
         if self._running:
             await instance.poller.stop()
             instance.poller = StatusPoller(
@@ -200,9 +212,9 @@ class InstanceManager:
         save_config(self._config_path, self._config)
         return _config_view(new_config)
 
-    async def discord_test(self, instance_id: str) -> None:
-        self.require(instance_id)
-        raise NotImplementedError("Discord notifier lands in Phase 4")
+    async def discord_test(self, instance_id: str) -> DiscordTestResponse:
+        instance = self.require(instance_id)
+        return await instance.notifier.send_test()
 
     # ----------------------------------------------------------------- internals
 
@@ -225,6 +237,19 @@ class InstanceManager:
             self._config.daemon.status_poll_interval,
             state.update_probe,
         )
+
+        def snapshot_now() -> InstanceSnapshot:
+            state.update_process(process.status())
+            return state.snapshot()
+
+        notifier = DiscordNotifier(
+            instance_id=cfg.id,
+            config=cfg.discord,
+            state_dir=Path(self._config.daemon.data_dir) / "discord",
+            snapshot_provider=snapshot_now,
+            log_provider=buffer.tail,
+            bus=self._bus,
+        )
         return ManagedInstance(
             config=cfg,
             buffer=buffer,
@@ -232,6 +257,19 @@ class InstanceManager:
             state=state,
             process=process,
             poller=poller,
+            notifier=notifier,
+        )
+
+    def _make_notifier(
+        self, instance: ManagedInstance, discord: DiscordConfig
+    ) -> DiscordNotifier:
+        return DiscordNotifier(
+            instance_id=instance.config.id,
+            config=discord,
+            state_dir=Path(self._config.daemon.data_dir) / "discord",
+            snapshot_provider=instance.snapshot,
+            log_provider=instance.buffer.tail,
+            bus=self._bus,
         )
 
     def _run_bg(self, coro: Coroutine[Any, Any, None]) -> None:

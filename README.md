@@ -14,7 +14,7 @@ remote.
 
 ## Status
 
-**Phase 3 — runnable daemon with API.** This repository currently contains:
+**Phase 4 — Discord notifier.** This repository currently contains:
 
 - `ARCHITECTURE.md` — design, state machine, data flow, security model.
 - `packages/mcpanel_common` — the pydantic models both sides share: the daemon
@@ -26,6 +26,10 @@ remote.
   state, and the FastAPI daemon: bearer auth, REST routes, `/events` and
   per-instance console WebSockets (backfill, live stream, slow-client
   resync), TOML config loading/persisting (0600) and token management.
+- `packages/mcpanel_daemon/discord.py` — per-instance Discord webhook
+  notifier (edit-in-place or new-message, colour-coded status embed with
+  recent logs, ANSI/IP/user-regex redaction, 429/5xx handling, debounced
+  state-change posts). See `docs/discord.md`.
 - `docs/openapi.json` — OpenAPI schema generated from the daemon.
 - `config.example.toml` — the annotated daemon configuration.
 
@@ -71,7 +75,7 @@ uv run python -m mcpanel_daemon.openapi > docs/openapi.json   # regenerate schem
 - [x] **1** Process manager + log buffer + state machine + fake server
 - [x] **2** Status poller and snapshot merging
 - [x] **3** REST/WebSocket API + auth
-- [ ] **4** Discord notifier
+- [x] **4** Discord notifier
 - [ ] **5** GUI for a single node
 - [ ] **6** Multi-node/remote support + docs
 - [ ] **7** Hardening: error paths, graceful shutdown, packaging, examples

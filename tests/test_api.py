@@ -22,6 +22,7 @@ from mcpanel_daemon.auth import TokenAuth
 from mcpanel_daemon.config_store import save_config
 from mcpanel_daemon.events import EventBus
 from mcpanel_daemon.instances import InstanceManager
+from mock_discord import MockDiscord
 from starlette.testclient import TestClient, WebSocketDenialResponse, WebSocketTestSession
 
 FAKE_SERVER = Path(__file__).resolve().parent / "fake_mc_server.py"
@@ -228,10 +229,26 @@ def test_config_put_updates_persists_and_keeps_secret(tmp_path: Path) -> None:
         assert bad.status_code == 422
 
 
-def test_discord_test_returns_501_until_phase_4(tmp_path: Path) -> None:
+def test_discord_test_endpoint_reports_disabled(tmp_path: Path) -> None:
     with running_app(tmp_path) as (client, _):
         response = client.post("/api/v1/instances/test/discord/test", headers=AUTH)
-        assert response.status_code == 501
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is False
+        assert body["error"] is not None
+
+
+def test_discord_test_endpoint_sends_message(tmp_path: Path) -> None:
+    mock = MockDiscord()
+    try:
+        discord = {"enabled": True, "webhook_url": mock.webhook_url}
+        with running_app(tmp_path, discord=discord) as (client, _):
+            response = client.post("/api/v1/instances/test/discord/test", headers=AUTH)
+            assert response.status_code == 200
+            assert response.json()["ok"] is True
+            assert any(request["method"] == "POST" for request in mock.requests)
+    finally:
+        mock.close()
 
 
 # ------------------------------------------------------------- WebSocket tests

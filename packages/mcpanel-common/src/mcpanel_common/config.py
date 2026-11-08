@@ -91,12 +91,12 @@ class DiscordConfig(_StrictModel):
     enabled: bool = False
     webhook_url: SecretStr | None = None
     mode: Literal["edit-in-place", "new-message"] = "edit-in-place"
-    interval_seconds: float = Field(default=600.0, ge=10.0)
+    interval_seconds: float = Field(default=600.0, ge=0.1)
     first_push_delay_seconds: float = Field(default=10.0, ge=0.0)
     log_lines: int = Field(default=15, ge=0, le=50)
     max_log_chars: int = Field(default=1500, ge=0, le=4096)
     state_change_posts: bool = True
-    state_change_debounce_seconds: float = Field(default=30.0, ge=1.0)
+    state_change_debounce_seconds: float = Field(default=30.0, ge=0.1)
     redact_regexes: list[str] = Field(default_factory=list)
 
     @field_validator("redact_regexes")

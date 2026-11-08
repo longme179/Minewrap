@@ -207,14 +207,11 @@ def create_app(
     )
     async def discord_test(instance_id: str) -> DiscordTestResponse:
         try:
-            await get_manager().discord_test(instance_id)
+            return await get_manager().discord_test(instance_id)
         except UnknownInstanceError as exc:
             raise HTTPException(
                 status_code=404, detail=f"unknown instance: {instance_id}"
             ) from exc
-        except NotImplementedError as exc:
-            raise HTTPException(status_code=501, detail=str(exc)) from exc
-        return DiscordTestResponse(ok=True)
 
     @api.websocket("/instances/{instance_id}/console")
     async def console_ws(websocket: WebSocket, instance_id: str) -> None:
