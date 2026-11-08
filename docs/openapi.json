@@ -3,7 +3,7 @@
   "info": {
     "title": "mcpanel daemon",
     "description": "Node daemon API for managing Minecraft Java Edition servers.",
-    "version": "0.1.0"
+    "version": "1.0.0"
   },
   "paths": {
     "/health": {

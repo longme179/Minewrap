@@ -1,222 +1,247 @@
 # mcpanel
 
-A manager for Minecraft Java Edition servers: a headless **node daemon** that runs
-on any host, and a desktop **GUI client** that manages one or many nodes, local or
-remote.
+**Run and monitor Minecraft Java Edition servers from a desktop app — on this
+machine or a remote one — without keeping a terminal open or exposing RCON.**
 
-- Start/stop/restart a server, watch and use its console, see live status — all from
-  the GUI.
-- Independently of the GUI, the daemon pushes server state plus recent log lines to
-  a Discord webhook every 10 minutes (configurable).
-- The GUI never touches a Minecraft server directly: it only talks to the daemon
-  over the API, so "local" (127.0.0.1) and "remote" (via SSH tunnel) are the same
-  thing.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](pyproject.toml)
+[![Platform: Linux x86_64](https://img.shields.io/badge/platform-Linux%20x86__64-lightgrey.svg)](packaging/build-linux.sh)
 
-## Status
+![mcpanel GUI](docs/screenshot.png)
 
-**Phase 7 — hardening, packaging, examples (v0.1 complete).** This repository
-currently contains:
+mcpanel is two pieces that ship as **one file**:
 
-- `ARCHITECTURE.md` — design, state machine, data flow, security model.
-- `packages/mcpanel_common` — the pydantic models both sides share: the daemon
-  config schema and the full API contract (REST DTOs + WebSocket messages).
-- `packages/mcpanel_daemon` — the log ring buffer (with rotating file tee),
-  event bus, process manager (spawn/stop/restart, crash/restart policy,
-  startup timeout, SIGTERM/SIGKILL escalation), the mcstatus status poller
-  (async status/query, probe errors never escape the loop), merged instance
-  state, and the FastAPI daemon: bearer auth, REST routes, `/events` and
-  per-instance console WebSockets (backfill, live stream, slow-client
-  resync), TOML config loading/persisting (0600) and token management.
-- `packages/mcpanel_daemon/discord.py` — per-instance Discord webhook
-  notifier (edit-in-place or new-message, colour-coded status embed with
-  recent logs, ANSI/IP/user-regex redaction, 429/5xx handling, debounced
-  state-change posts). See `docs/discord.md`.
-- `packages/mcpanel_gui` — PySide6 client: node list with one-click local
-  node, add/edit/remove remote nodes (URL + token), status panel +
-  start/stop/restart, live console (pause-on-scroll-up, command history),
-  settings tab (launch/probe/restart/Discord + send test). `ApiClient` is
-  Qt-free; tokens live in the OS keyring or a 0600 fallback file; sockets run
-  off the UI thread with reconnect/backoff and clear
-  offline/unauthorized/incompatible states.
-- `docs/remote-access.md` — SSH port-forward (recommended) and reverse proxy
-  with TLS (Caddy/nginx), plus verification steps.
-- `docs/openapi.json` — OpenAPI schema generated from the daemon.
-- `config.example.toml` — the annotated daemon configuration.
-- `packaging/mcpanel-daemon.service` — systemd user unit example.
-- `packaging/build-linux.sh` — PyInstaller + AppImage build (portable binaries).
-- `LICENSE` — MIT.
+- **`mcpanel-daemon`** — a headless node daemon that owns the Minecraft
+  process (stdin/stdout), probes status, streams the console, restarts crashes
+  and pushes state + recent logs to Discord. It keeps working when the GUI is
+  closed.
+- **`mcpanel-gui`** — a PySide6 client that manages any number of nodes. It
+  never touches a server process or file directly; it only talks to daemons
+  over HTTP + WebSocket. "Local" is simply a daemon at `127.0.0.1`, so a
+  tunneled remote node behaves identically.
 
-`mcpanel-daemon --config config.toml` runs the daemon and `mcpanel-gui` the
-client. Known limitation (documented in ARCHITECTURE.md): a server child dies
-with its daemon — detached mode is a future option, not built. RCON-based TPS
-is config-reserved but not implemented in v0.1.
+## Download
 
-## Quickstart (single-file AppImage)
+Grab the latest all-in-one build from **[Releases](https://github.com/longme179/Minewrap/releases/latest)**:
 
-Download `mcpanel-x86_64.AppImage` — it is the all-in-one build (GUI + daemon
-in one file, no separate install). On first launch the setup wizard opens by
-itself:
-
-- pick your server directory and server jar
-- keep the defaults (bind 127.0.0.1:8080, probe 25565)
-- "Create & start" writes `config.toml`, starts the bundled daemon
-  (detached, so it keeps running when the GUI closes), reads the API token
-  and connects the node automatically.
-
-From source, the same flow is `uv run mcpanel-gui`.
-
-Prefer the terminal, or targeting a remote machine:
-
-```sh
-uv sync --all-packages
-cp config.example.toml config.toml     # edit the [[instances]] section
-uv run mcpanel-daemon --config config.toml
-# On first run the API token is printed once and stored in <data_dir>/token (0600).
-curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/v1/instances
-
-uv run mcpanel-gui
-# "Add local node" defaults to http://127.0.0.1:8080; paste the token when asked.
+```
+mcpanel-x86_64.AppImage      (~93 MB, GUI + daemon in one file)
+mcpanel-x86_64.AppImage.sha256
 ```
 
-## Run the daemon as a systemd user service
+Requirements: Linux x86_64. Direct execution needs FUSE; on FUSE-less systems
+run it with `--appimage-extract-and-run`.
 
 ```sh
-mkdir -p ~/.config/systemd/user
-cp packaging/mcpanel-daemon.service ~/.config/systemd/user/
-# edit WorkingDirectory / ExecStart to match your paths
-systemctl --user daemon-reload
-systemctl --user enable --now mcpanel-daemon
-journalctl --user -u mcpanel-daemon -f
+chmod +x mcpanel-x86_64.AppImage
+./mcpanel-x86_64.AppImage
 ```
 
-The daemon stops its Minecraft children itself on SIGTERM (the app lifespan
-runs the shutdown); the unit's `TimeoutStopSec` covers the slowest stop
-escalation.
+## Quick start
 
-## Portable binaries / AppImage
+1. Run the AppImage. On first launch the setup wizard opens automatically.
+2. Pick your server directory and server jar (`-jar`), set JVM args such as
+   `-Xmx4G` (and optional Discord webhook), then **Create & start**.
+3. The wizard writes `~/mcpanel/config.toml`, starts the bundled daemon in the
+   background (detached — it survives closing the GUI), reads the generated API
+   token and connects the node.
+4. Click the instance in the left tree: **Console** shows live logs and accepts
+   server commands (`stop`, `list`, …); **Settings** edits launch/probe/restart
+   and Discord options.
 
-For machines without Python/uv:
+> mcpanel starts and owns its own server process. A server started by hand in
+> a terminal is invisible to it — stop that first; two servers in the same
+> world/port will conflict.
 
-```sh
-./packaging/build-linux.sh
+## Features
+
+- **Server control** — start / stop / restart with explicit state machine,
+  startup timeout, graceful `stop` → SIGTERM → SIGKILL escalation.
+- **Live console** — ring-buffer backfill, streaming, command input with
+  history, pause-on-scroll-up, slow-client resync.
+- **Status** — process state and reachability kept separate; players, version,
+  MOTD, latency and uptime from the server-list ping; optional Query for
+  player names.
+- **Crash policy** — restart on crash with exponential backoff and retry limits;
+  a crash loop is reported instead of spamming.
+- **Discord** — one message edited in place every N seconds (default 10 min)
+  with state, players, version, latency, uptime and the last log lines; extra
+  debounced posts on state changes. Redaction strips ANSI, login-form IPs and
+  IPv4/IPv6 before anything leaves the machine.
+- **Multi-node & remote** — manage many daemons; remote access via SSH
+  port-forward (recommended) or a TLS reverse proxy.
+- **Secrets stay secret** — bearer-token auth (constant-time compare), daemon
+  binds `127.0.0.1` by default, token/config/state files are `0600`, webhooks
+  are write-only over the API and never logged.
+
+## How it works
+
+```mermaid
+flowchart LR
+    op(["Operator"]) --> gui["mcpanel GUI<br/>PySide6"]
+    gui <-->|"REST + WebSocket<br/>Bearer token"| daemon["mcpanel daemon<br/>FastAPI + asyncio"]
+    daemon -->|"spawn, stdin/stdout, signals"| mc["Minecraft server<br/>java"]
+    daemon -.->|"status / query"| mc
+    daemon -->|"webhook create/edit"| discord["Discord"]
+    gui -.->|"same API over SSH tunnel or TLS"| remote["Remote daemon"]
 ```
 
-Produces on Linux x86_64 (verified sizes):
+Process state (`offline → starting → online → stopping → offline`, plus
+`crashed`) is owned by the daemon. The probe result is a separate fact;
+`online` requires the process to be up and the probe to succeed, and repeated
+probe failures show **unresponsive** rather than "offline". See
+[ARCHITECTURE.md](ARCHITECTURE.md) for the full design, state table and data
+flows.
 
-| Artifact | What it is |
-|---|---|
-| `dist/mcpanel-x86_64.AppImage` | **all-in-one**: GUI + daemon in one file (~93 MB) |
-| `dist/mcpanel-daemon` | standalone daemon binary for servers (~21 MB) |
-| `dist/mcpanel-gui/` | portable GUI directory (for development) |
+## Configuration
 
-End users only need `mcpanel-x86_64.AppImage`. It runs the GUI by default and
-carries the daemon for the first-run setup; the daemon binary keeps the same
-contract for headless deployments:
-
-```sh
-./mcpanel-x86_64.AppImage                          # GUI
-./mcpanel-x86_64.AppImage --daemon --config config.toml   # daemon
-```
-
-The AppImage needs FUSE; where FUSE is unavailable, run it with
-`--appimage-extract-and-run` (also required for the `--daemon` form in
-containers/FUSE-less systems). The GUI's **Set up a local daemon…** wizard
-starts the daemon binary bundled in the AppImage, so no terminal step is
-required for a local setup.
-
-Caveats: PyInstaller does not cross-compile — build on the target OS. The
-same specs produce a `.exe` on Windows and a `.app` on macOS when run there
-(the AppImage step is Linux-only). The GUI depends on `PySide6-Essentials`
-(QtCore/QtGui/QtWidgets only) to keep bundles small; the daemon bundle
-collects uvicorn's dynamically imported modules explicitly. Qt/GTK desktop
-integration still comes from the host (AppImage bundles Qt, not system
-theme engines).
-
-## How mcpanel works (important)
-
-mcpanel does **not** attach to a Minecraft process you started yourself. The
-**daemon** owns the server process: it spawns `java` from the instance
-configuration, pipes its console, and can start/stop it. The GUI only talks to
-the daemon and never touches the server directly. So the workflow is:
-
-1. In the GUI click **Set up a local daemon…**: it writes `config.toml`,
-   starts the daemon (detached), reads the token and connects the node. This
-   replaces your manual `java -Xmx4G -jar server.jar nogui` command, because
-   the daemon starts the server from that config. (You can still do it by hand:
-   write the config and run `mcpanel-daemon --config config.toml`.)
-2. The daemon starts the server according to the instance config.
-3. Click the instance in the tree: **Console** shows logs and accepts input;
-   **Settings** holds launch/probe/restart and the Discord webhook.
-
-A server started by hand (`java …` in a terminal) is invisible to mcpanel —
-stop it first; two servers in the same world/port will conflict. Example for
-a Fabric/Cobblemon installation:
+Everything is config-driven — no hardcoded paths, hosts, ports or Java
+binaries. The daemon reads a TOML file; `config.example.toml` is fully
+annotated. Minimal example:
 
 ```toml
 [daemon]
+host = "127.0.0.1"          # loopback by default
 port = 8080
-# token = "optional-pinned-token"   # otherwise generated into ./data/token (0600)
+data_dir = "./data"         # tokens, Discord state, logs; relative to this file
 
 [[instances]]
-id = "cobblemon"
-name = "Cobblemon"
-work_dir = "/home/you/Cobblemon-server"   # your server directory
+id = "survival"
+name = "Survival"
+work_dir = "/srv/minecraft/survival"
 java_path = "java"
 jvm_args = ["-Xmx4G"]
-launch_args = ["-jar", "fabric-server-mc.1.21.1-loader.0.18.4-launcher.1.1.2.jar", "nogui"]
+launch_args = ["-jar", "server.jar", "nogui"]
 autostart = true
 
 [instances.probe]
 host = "127.0.0.1"
 port = 25565
-query_enabled = false        # true needs enable-query=true in server.properties
 
 [instances.discord]
-enabled = true               # optional; also editable in the GUI Settings tab
+enabled = true
 webhook_url = "https://discord.com/api/webhooks/…"
 interval_seconds = 600
 ```
 
-If the GUI shows **“Node offline — retrying”**, the daemon is not reachable:
-start it, check `host`/`port`, and copy the token from
-`<config-dir>/data/token` (or the one printed at first start). **Unauthorized**
-means a wrong/missing token; **incompatible daemon** means version mismatch.
+Settings edited in the GUI are validated, applied to the running daemon and
+persisted back to the TOML file (`0600`).
 
-## Layout
+Daemon data directory:
 
 ```
-packages/
-├── mcpanel-common/   # pydantic models: config schema + API contract
-├── mcpanel-daemon/   # FastAPI daemon (process manager, poller, Discord)
-└── mcpanel-gui/      # PySide6 client (ApiClient, view models, widgets)
-tests/                # one pytest run for the whole workspace
-docs/                 # openapi.json + guides (remote access, Discord)
+data/
+├── token                  # generated API token (0600), printed once
+├── daemon.log             # daemon + spawn diagnostics
+├── logs/<instance>.log    # rotating console tee
+└── discord/<instance>.json# edit-in-place message id
 ```
 
-## Development
+## Discord
+
+Enable it per instance and paste the webhook URL in **Settings** (or the TOML
+file), then use **Send test message**. The embed is colour-coded by state and
+contains version, players, latency, uptime, last-updated and a fenced log
+block. Edits use `PATCH`; if the message was deleted a new one is created.
+Rate limits (429 `retry_after`) and 5xx responses are retried with backoff.
+Full details: [docs/discord.md](docs/discord.md).
+
+## Remote access
+
+Keep the daemon on `127.0.0.1` and use one of:
+
+- **SSH port-forward (recommended)** — `ssh -N -L 18080:127.0.0.1:8080 user@host`,
+  then add a node with `http://127.0.0.1:18080` and the daemon token.
+- **Reverse proxy with TLS** — Caddy or nginx in front of `127.0.0.1:8080`,
+  WebSocket upgrade enabled.
+
+RCON is never exposed. Setup commands and proxy configs:
+[docs/remote-access.md](docs/remote-access.md).
+
+## Build from source
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```sh
-uv sync                 # install workspace + dev tools
-uv run pytest           # test suite
-uv run ruff check       # lint
-uv run pyright          # type check (strict for common + daemon)
-uv run python -m mcpanel_daemon.openapi > docs/openapi.json   # regenerate schema
+uv sync --all-packages
+
+# daemon
+uv run mcpanel-daemon --config config.toml
+
+# GUI (another terminal)
+uv run mcpanel-gui
 ```
 
-## Phase checklist
+Quality gates:
 
-- [x] **0** Architecture, API contract, config schema
-- [x] **1** Process manager + log buffer + state machine + fake server
-- [x] **2** Status poller and snapshot merging
-- [x] **3** REST/WebSocket API + auth
-- [x] **4** Discord notifier
-- [x] **5** GUI for a single node
-- [x] **6** Multi-node/remote support + docs
-- [x] **7** Hardening: error paths, graceful shutdown, packaging, examples
+```sh
+uv run pytest            # 150+ tests, incl. fake Minecraft server & mock Discord
+uv run ruff check        # lint
+uv run pyright           # strict for mcpanel_common + mcpanel_daemon
+```
+
+The committed OpenAPI schema is generated from the real app:
+
+```sh
+uv run python -m mcpanel_daemon.openapi > docs/openapi.json
+```
+
+### Packaging (single-file AIO)
+
+```sh
+./packaging/build-linux.sh
+```
+
+Produces `dist/mcpanel-x86_64.AppImage` (GUI + daemon), a standalone
+`dist/mcpanel-daemon` binary for servers, and a portable GUI folder. The
+AppImage is the user-facing artifact; PyInstaller does not cross-compile, so
+build Windows/macOS artifacts on those systems (the same specs apply).
+
+## Project layout
+
+```
+packages/
+├── mcpanel-common/   # pydantic models: config schema + API contract (shared)
+├── mcpanel-daemon/   # FastAPI daemon: process manager, poller, Discord, API
+└── mcpanel-gui/      # PySide6 client: ApiClient, view models, widgets
+docs/                 # screenshot, OpenAPI schema, Discord + remote-access guides
+packaging/            # PyInstaller specs, AppImage assets, systemd unit, build script
+tests/                # one pytest run for the whole workspace
+```
+
+## Security
+
+- Daemon listens on `127.0.0.1` by default; remote access is opt-in and
+  documented with TLS or SSH.
+- Bearer token on every endpoint except `/health`; constant-time comparison.
+- Generated token and daemon-written configs are mode `0600`; the token is
+  printed once on first run.
+- Discord payloads redact ANSI codes, login-form IPs, IPv4/IPv6 addresses and
+  user-defined patterns; the webhook URL is masked in every log line.
+- The GUI stores node tokens in the OS keyring, falling back to a `0600` file.
+
+## Known limitations
+
+- If the daemon dies, its child servers die with it. Detached-mode supervision
+  is a future option.
+- RCON-based TPS reporting is reserved in the config but not implemented.
+- The AppImage targets Linux x86_64; Windows/macOS builds are possible from
+  source but not published.
+- Player names require Query (`enable-query=true` in `server.properties`);
+  console and status work without it.
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | components, state machine, data flows, concurrency |
+| [docs/remote-access.md](docs/remote-access.md) | SSH tunnel and reverse-proxy TLS setups |
+| [docs/discord.md](docs/discord.md) | embed contents, redaction, retries |
+| [docs/openapi.json](docs/openapi.json) | committed API schema |
+| [config.example.toml](config.example.toml) | every option, annotated |
+| [packaging/mcpanel-daemon.service](packaging/mcpanel-daemon.service) | systemd user unit |
 
 ## License
 
-MIT. No code is borrowed from the referenced projects (crafty, wings, MCSManager,
-msw-go); mcstatus is a dependency under Apache-2.0.
+MIT — see [LICENSE](LICENSE). Ideas were taken from the public projects listed
+in the design notes; no code was copied.

@@ -1,6 +1,6 @@
 [project]
 name = "mcpanel-gui"
-version = "0.1.0"
+version = "1.0.0"
 description = "PySide6 desktop client for mcpanel"
 requires-python = ">=3.12"
 dependencies = [

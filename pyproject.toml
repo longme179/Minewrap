@@ -1,6 +1,6 @@
 [project]
 name = "mcpanel"
-version = "0.1.0"
+version = "1.0.0"
 description = "mcpanel: daemon + GUI for managing Minecraft Java Edition servers"
 requires-python = ">=3.12"
 dependencies = []

@@ -389,7 +389,7 @@ wheels = [
 
 [[package]]
 name = "mcpanel"
-version = "0.1.0"
+version = "1.0.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -416,7 +416,7 @@ dev = [
 
 [[package]]
 name = "mcpanel-common"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "packages/mcpanel-common" }
 dependencies = [
     { name = "pydantic" },
@@ -427,7 +427,7 @@ requires-dist = [{ name = "pydantic", specifier = ">=2.8" }]
 
 [[package]]
 name = "mcpanel-daemon"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "packages/mcpanel-daemon" }
 dependencies = [
     { name = "fastapi" },
@@ -450,7 +450,7 @@ requires-dist = [
 
 [[package]]
 name = "mcpanel-gui"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "packages/mcpanel-gui" }
 dependencies = [
     { name = "httpx" },
