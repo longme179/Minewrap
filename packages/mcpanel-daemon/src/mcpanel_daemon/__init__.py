@@ -1,0 +1,1 @@
+"""mcpanel node daemon."""

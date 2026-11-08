@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.pyright/
+
+# Project runtime data (never commit secrets or server logs)
+data/
+*.log
+*.token
+token
+
+# Editors
+.idea/
+.vscode/

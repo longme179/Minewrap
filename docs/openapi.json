@@ -1,0 +1,1471 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "mcpanel daemon",
+    "description": "Node daemon API for managing Minecraft Java Edition servers.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances": {
+      "get": {
+        "tags": [
+          "instances"
+        ],
+        "summary": "List Instances",
+        "operationId": "list_instances_api_v1_instances_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InstanceSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Instances Api V1 Instances Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/instances/{instance_id}": {
+      "get": {
+        "tags": [
+          "instances"
+        ],
+        "summary": "Get Snapshot",
+        "operationId": "get_snapshot_api_v1_instances__instance_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Instance Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceSnapshot"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances/{instance_id}/start": {
+      "post": {
+        "tags": [
+          "instances"
+        ],
+        "summary": "Start Instance",
+        "operationId": "start_instance_api_v1_instances__instance_id__start_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Instance Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances/{instance_id}/stop": {
+      "post": {
+        "tags": [
+          "instances"
+        ],
+        "summary": "Stop Instance",
+        "operationId": "stop_instance_api_v1_instances__instance_id__stop_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Instance Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances/{instance_id}/restart": {
+      "post": {
+        "tags": [
+          "instances"
+        ],
+        "summary": "Restart Instance",
+        "operationId": "restart_instance_api_v1_instances__instance_id__restart_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Instance Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances/{instance_id}/command": {
+      "post": {
+        "tags": [
+          "instances"
+        ],
+        "summary": "Send Command",
+        "operationId": "send_command_api_v1_instances__instance_id__command_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Instance Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances/{instance_id}/logs": {
+      "get": {
+        "tags": [
+          "instances"
+        ],
+        "summary": "Get Logs",
+        "operationId": "get_logs_api_v1_instances__instance_id__logs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Instance Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 2000,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "since_seq",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Since Seq"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances/{instance_id}/config": {
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Get Config",
+        "operationId": "get_config_api_v1_instances__instance_id__config_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Instance Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceConfigView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Update Config",
+        "operationId": "update_config_api_v1_instances__instance_id__config_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Instance Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceConfigView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances/{instance_id}/discord/test": {
+      "post": {
+        "tags": [
+          "discord"
+        ],
+        "summary": "Discord Test",
+        "operationId": "discord_test_api_v1_instances__instance_id__discord_test_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Instance Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscordTestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ActionResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "ActionResponse"
+      },
+      "CommandRequest": {
+        "properties": {
+          "command": {
+            "type": "string",
+            "title": "Command"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "command"
+        ],
+        "title": "CommandRequest"
+      },
+      "CommandResponse": {
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "accepted"
+        ],
+        "title": "CommandResponse"
+      },
+      "ConfigUpdateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "work_dir": {
+            "type": "string",
+            "title": "Work Dir"
+          },
+          "java_path": {
+            "type": "string",
+            "title": "Java Path",
+            "default": "java"
+          },
+          "jvm_args": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Jvm Args"
+          },
+          "launch_args": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Launch Args"
+          },
+          "autostart": {
+            "type": "boolean",
+            "title": "Autostart",
+            "default": false
+          },
+          "probe": {
+            "$ref": "#/components/schemas/ProbeConfig"
+          },
+          "restart": {
+            "$ref": "#/components/schemas/RestartConfig"
+          },
+          "rcon": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RconConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discord": {
+            "$ref": "#/components/schemas/DiscordConfigUpdate"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "work_dir"
+        ],
+        "title": "ConfigUpdateRequest"
+      },
+      "DiscordConfigUpdate": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "edit-in-place",
+              "new-message"
+            ],
+            "title": "Mode",
+            "default": "edit-in-place"
+          },
+          "interval_seconds": {
+            "type": "number",
+            "title": "Interval Seconds",
+            "default": 600.0
+          },
+          "first_push_delay_seconds": {
+            "type": "number",
+            "title": "First Push Delay Seconds",
+            "default": 10.0
+          },
+          "log_lines": {
+            "type": "integer",
+            "title": "Log Lines",
+            "default": 15
+          },
+          "max_log_chars": {
+            "type": "integer",
+            "title": "Max Log Chars",
+            "default": 1500
+          },
+          "state_change_posts": {
+            "type": "boolean",
+            "title": "State Change Posts",
+            "default": true
+          },
+          "state_change_debounce_seconds": {
+            "type": "number",
+            "title": "State Change Debounce Seconds",
+            "default": 30.0
+          },
+          "redact_regexes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Redact Regexes"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "password",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DiscordConfigUpdate"
+      },
+      "DiscordConfigView": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "edit-in-place",
+              "new-message"
+            ],
+            "title": "Mode"
+          },
+          "interval_seconds": {
+            "type": "number",
+            "title": "Interval Seconds"
+          },
+          "first_push_delay_seconds": {
+            "type": "number",
+            "title": "First Push Delay Seconds"
+          },
+          "log_lines": {
+            "type": "integer",
+            "title": "Log Lines"
+          },
+          "max_log_chars": {
+            "type": "integer",
+            "title": "Max Log Chars"
+          },
+          "state_change_posts": {
+            "type": "boolean",
+            "title": "State Change Posts"
+          },
+          "state_change_debounce_seconds": {
+            "type": "number",
+            "title": "State Change Debounce Seconds"
+          },
+          "redact_regexes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Redact Regexes"
+          },
+          "webhook_set": {
+            "type": "boolean",
+            "title": "Webhook Set"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "enabled",
+          "mode",
+          "interval_seconds",
+          "first_push_delay_seconds",
+          "log_lines",
+          "max_log_chars",
+          "state_change_posts",
+          "state_change_debounce_seconds",
+          "redact_regexes",
+          "webhook_set"
+        ],
+        "title": "DiscordConfigView"
+      },
+      "DiscordTestResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "DiscordTestResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status"
+          },
+          "api_version": {
+            "type": "string",
+            "title": "Api Version"
+          },
+          "daemon_version": {
+            "type": "string",
+            "title": "Daemon Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "api_version",
+          "daemon_version"
+        ],
+        "title": "HealthResponse"
+      },
+      "InstanceConfigView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "work_dir": {
+            "type": "string",
+            "title": "Work Dir"
+          },
+          "java_path": {
+            "type": "string",
+            "title": "Java Path"
+          },
+          "jvm_args": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Jvm Args"
+          },
+          "launch_args": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Launch Args"
+          },
+          "autostart": {
+            "type": "boolean",
+            "title": "Autostart"
+          },
+          "probe": {
+            "$ref": "#/components/schemas/ProbeConfig"
+          },
+          "restart": {
+            "$ref": "#/components/schemas/RestartConfig"
+          },
+          "rcon": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RconConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discord": {
+            "$ref": "#/components/schemas/DiscordConfigView"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "work_dir",
+          "java_path",
+          "jvm_args",
+          "launch_args",
+          "autostart",
+          "probe",
+          "restart",
+          "rcon",
+          "discord"
+        ],
+        "title": "InstanceConfigView"
+      },
+      "InstanceSnapshot": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "combined_state": {
+            "type": "string",
+            "enum": [
+              "offline",
+              "starting",
+              "online",
+              "stopping",
+              "crashed",
+              "unresponsive"
+            ],
+            "title": "Combined State"
+          },
+          "process": {
+            "$ref": "#/components/schemas/ProcessInfo"
+          },
+          "probe": {
+            "$ref": "#/components/schemas/ProbeInfo"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "combined_state",
+          "process",
+          "probe",
+          "updated_at"
+        ],
+        "title": "InstanceSnapshot"
+      },
+      "InstanceSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "combined_state": {
+            "type": "string",
+            "enum": [
+              "offline",
+              "starting",
+              "online",
+              "stopping",
+              "crashed",
+              "unresponsive"
+            ],
+            "title": "Combined State"
+          },
+          "players_online": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Players Online"
+          },
+          "players_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Players Max"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "combined_state"
+        ],
+        "title": "InstanceSummary"
+      },
+      "LogLine": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ts"
+          },
+          "line": {
+            "type": "string",
+            "title": "Line"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "seq",
+          "ts",
+          "line"
+        ],
+        "title": "LogLine"
+      },
+      "LogsResponse": {
+        "properties": {
+          "instance_id": {
+            "type": "string",
+            "title": "Instance Id"
+          },
+          "first_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seq"
+          },
+          "last_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seq"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LogLine"
+            },
+            "type": "array",
+            "title": "Lines"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "instance_id",
+          "first_seq",
+          "last_seq",
+          "lines"
+        ],
+        "title": "LogsResponse"
+      },
+      "ProbeConfig": {
+        "properties": {
+          "host": {
+            "type": "string",
+            "title": "Host",
+            "default": "127.0.0.1"
+          },
+          "port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "default": 25565
+          },
+          "query_enabled": {
+            "type": "boolean",
+            "title": "Query Enabled",
+            "default": false
+          },
+          "query_port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query Port"
+          },
+          "timeout": {
+            "type": "number",
+            "minimum": 0.1,
+            "title": "Timeout",
+            "default": 3.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ProbeConfig"
+      },
+      "ProbeInfo": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "players_online": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Players Online"
+          },
+          "players_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Players Max"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "motd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motd"
+          },
+          "player_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Player Names"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "ProbeInfo"
+      },
+      "ProcessInfo": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "offline",
+              "starting",
+              "online",
+              "stopping",
+              "crashed"
+            ],
+            "title": "State"
+          },
+          "pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pid"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "stopped_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stopped At"
+          },
+          "uptime_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uptime Seconds"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "requested_stop": {
+            "type": "boolean",
+            "title": "Requested Stop",
+            "default": false
+          },
+          "restart_count": {
+            "type": "integer",
+            "title": "Restart Count",
+            "default": 0
+          },
+          "crash_count": {
+            "type": "integer",
+            "title": "Crash Count",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "ProcessInfo"
+      },
+      "RconConfig": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "host": {
+            "type": "string",
+            "title": "Host",
+            "default": "127.0.0.1"
+          },
+          "port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "default": 25575
+          },
+          "password_env": {
+            "type": "string",
+            "title": "Password Env",
+            "default": "MC_RCON_PASSWORD"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RconConfig",
+        "description": "Optional RCON. Password comes from an env var named here, never from config."
+      },
+      "RestartConfig": {
+        "properties": {
+          "policy": {
+            "type": "string",
+            "enum": [
+              "never",
+              "on-crash"
+            ],
+            "title": "Policy",
+            "default": "on-crash"
+          },
+          "max_retries": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Max Retries",
+            "default": 5
+          },
+          "backoff_base_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "title": "Backoff Base Seconds",
+            "default": 5.0
+          },
+          "backoff_max_seconds": {
+            "type": "number",
+            "minimum": 1.0,
+            "title": "Backoff Max Seconds",
+            "default": 300.0
+          },
+          "reset_after_online_seconds": {
+            "type": "number",
+            "minimum": 1.0,
+            "title": "Reset After Online Seconds",
+            "default": 600.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RestartConfig"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}
