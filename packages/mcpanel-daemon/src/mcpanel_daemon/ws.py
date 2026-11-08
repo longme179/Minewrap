@@ -58,6 +58,14 @@ async def handle_console(
     last_sent = 0
     try:
         last_sent = await _send_backfill(websocket, manager, instance, since_seq=None)
+        try:
+            snapshot = manager.snapshot(instance_id)
+        except UnknownInstanceError:  # pragma: no cover - instances are fixed at startup
+            snapshot = None
+        if snapshot is not None:
+            await _send(
+                websocket, ConsoleSnapshotMessage(type="snapshot", snapshot=snapshot)
+            )
         while True:
             done, _ = await asyncio.wait(
                 {receive_task, queue_task}, return_when=asyncio.FIRST_COMPLETED

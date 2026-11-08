@@ -53,7 +53,9 @@ class ConsoleWidget(QWidget):
         self._output.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
 
         self._input = _HistoryLineEdit(self.model, self)
-        self._input.setPlaceholderText("Type a command and press Enter")
+        self._input.setPlaceholderText(
+            "Type a server command (e.g. stop) and press Enter"
+        )
         self._input.setEnabled(False)
         self._input.returnPressed.connect(self._submit)
 

@@ -233,6 +233,9 @@ class MainWindow(QMainWindow):
         if state == CONNECTION_CONNECTED:
             self._prompted.discard(node_id)
             self.statusBar().showMessage("Connected")
+            for (page_node_id, _instance_id), page in self._pages.items():
+                if page_node_id == node_id:
+                    page.refresh()
         elif state == CONNECTION_UNAUTHORIZED:
             self.statusBar().showMessage("Unauthorized — paste the node token")
             self._prompt_token(node_id)

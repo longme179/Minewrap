@@ -277,6 +277,9 @@ def test_console_ws_backfill_command_and_live_stream(tmp_path: Path) -> None:
             caught_up = recv_until(ws, lambda m: m["type"] == "caught_up")
             assert caught_up["seq"] >= first["line"]["seq"]
 
+            snapshot = recv_until(ws, lambda m: m["type"] == "snapshot")
+            assert snapshot["snapshot"]["process"]["state"] == "online"
+
             ws.send_json({"type": "command", "command": "say ws"})
             # The echoed log line and command_result may arrive in either order.
             result: dict[str, Any] | None = None
@@ -294,6 +297,18 @@ def test_console_ws_backfill_command_and_live_stream(tmp_path: Path) -> None:
                     break
             assert result is not None and result["accepted"] is True
             assert echo is not None and echo["line"]["seq"] > caught_up["seq"]
+
+
+def test_console_ws_snapshot_on_every_connect(tmp_path: Path) -> None:
+    with running_app(tmp_path) as (client, _):
+        client.post("/api/v1/instances/test/start", headers=AUTH)
+        wait_state(client, "online")
+
+        url = "/api/v1/instances/test/console"
+        for _ in range(2):  # reconnect without any state change in between
+            with client.websocket_connect(url, headers=AUTH) as ws:
+                snapshot = recv_until(ws, lambda m: m["type"] == "snapshot")
+                assert snapshot["snapshot"]["process"]["state"] == "online"
 
 
 def test_console_ws_hello_since_seq_replays_from_start(tmp_path: Path) -> None:

@@ -111,11 +111,20 @@ class InstancePage(QWidget):
             self._show_error,
         )
 
+    def refresh(self) -> None:
+        """Re-fetch the snapshot (called on show and when the node reconnects)."""
+        run_async(
+            lambda: self._api_provider().get_snapshot(self._instance_id),
+            self.handle_snapshot,
+            self._show_error,
+        )
+
     # --------------------------------------------------------------- lifecycle
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self._stream.start()
+        self.refresh()
 
     def hideEvent(self, event: QHideEvent) -> None:
         self._stream.stop()
