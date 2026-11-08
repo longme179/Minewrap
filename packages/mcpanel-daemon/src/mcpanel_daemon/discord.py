@@ -236,6 +236,10 @@ class DiscordNotifier:
         return self._config.enabled and self._config.webhook_url is not None
 
     @property
+    def running(self) -> bool:
+        return bool(self._tasks)
+
+    @property
     def _masked_url(self) -> str:
         url = self._config.webhook_url
         if url is None:

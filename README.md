@@ -14,7 +14,8 @@ remote.
 
 ## Status
 
-**Phase 6 — multi-node and remote access.** This repository currently contains:
+**Phase 7 — hardening, packaging, examples (v0.1 complete).** This repository
+currently contains:
 
 - `ARCHITECTURE.md` — design, state machine, data flow, security model.
 - `packages/mcpanel_common` — the pydantic models both sides share: the daemon
@@ -41,10 +42,13 @@ remote.
   with TLS (Caddy/nginx), plus verification steps.
 - `docs/openapi.json` — OpenAPI schema generated from the daemon.
 - `config.example.toml` — the annotated daemon configuration.
+- `packaging/mcpanel-daemon.service` — systemd user unit example.
+- `LICENSE` — MIT.
 
 `mcpanel-daemon --config config.toml` runs the daemon and `mcpanel-gui` the
-client (Phase 6 covers the remaining remote-access setup docs). See the phase
-checklist below.
+client. Known limitation (documented in ARCHITECTURE.md): a server child dies
+with its daemon — detached mode is a future option, not built. RCON-based TPS
+is config-reserved but not implemented in v0.1.
 
 ## Quickstart (daemon + GUI)
 
@@ -59,6 +63,21 @@ curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/v1/instances
 uv run mcpanel-gui
 # "Add local node" defaults to http://127.0.0.1:8080; paste the token when asked.
 ```
+
+## Run the daemon as a systemd user service
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp packaging/mcpanel-daemon.service ~/.config/systemd/user/
+# edit WorkingDirectory / ExecStart to match your paths
+systemctl --user daemon-reload
+systemctl --user enable --now mcpanel-daemon
+journalctl --user -u mcpanel-daemon -f
+```
+
+The daemon stops its Minecraft children itself on SIGTERM (the app lifespan
+runs the shutdown); the unit's `TimeoutStopSec` covers the slowest stop
+escalation.
 
 ## Layout
 
@@ -92,7 +111,7 @@ uv run python -m mcpanel_daemon.openapi > docs/openapi.json   # regenerate schem
 - [x] **4** Discord notifier
 - [x] **5** GUI for a single node
 - [x] **6** Multi-node/remote support + docs
-- [ ] **7** Hardening: error paths, graceful shutdown, packaging, examples
+- [x] **7** Hardening: error paths, graceful shutdown, packaging, examples
 
 ## License
 

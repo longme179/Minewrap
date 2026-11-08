@@ -78,6 +78,10 @@ class StatusPoller:
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._run())
 
+    @property
+    def running(self) -> bool:
+        return self._task is not None and not self._task.done()
+
     async def stop(self) -> None:
         task = self._task
         self._task = None
