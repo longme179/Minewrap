@@ -20,9 +20,11 @@ remote.
 - `packages/mcpanel_common` — the pydantic models both sides share: the daemon
   config schema and the full API contract (REST DTOs + WebSocket messages).
 - `packages/mcpanel_daemon` — the log ring buffer (with rotating file tee),
-  event bus, and process manager (spawn/stop/restart, crash/restart policy,
-  startup timeout, SIGTERM/SIGKILL escalation), tested against
-  `tests/fake_mc_server.py`.
+  event bus, process manager (spawn/stop/restart, crash/restart policy,
+  startup timeout, SIGTERM/SIGKILL escalation), the mcstatus status poller
+  (async status/query, probe errors never escape the loop), and the merged
+  instance state (process vs reachability vs combined state) — tested against
+  `tests/fake_mc_server.py` and fake probes.
 - `docs/openapi.json` — the OpenAPI schema generated from the API skeleton in
   `mcpanel_daemon` (route handlers are stubs until Phase 3).
 - `config.example.toml` — the annotated daemon configuration.
@@ -57,7 +59,7 @@ uv run python -m mcpanel_daemon.openapi > docs/openapi.json   # regenerate schem
 
 - [x] **0** Architecture, API contract, config schema
 - [x] **1** Process manager + log buffer + state machine + fake server
-- [ ] **2** Status poller and snapshot merging
+- [x] **2** Status poller and snapshot merging
 - [ ] **3** REST/WebSocket API + auth
 - [ ] **4** Discord notifier
 - [ ] **5** GUI for a single node
