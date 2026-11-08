@@ -14,7 +14,7 @@ remote.
 
 ## Status
 
-**Phase 5 — desktop GUI.** This repository currently contains:
+**Phase 6 — multi-node and remote access.** This repository currently contains:
 
 - `ARCHITECTURE.md` — design, state machine, data flow, security model.
 - `packages/mcpanel_common` — the pydantic models both sides share: the daemon
@@ -31,10 +31,14 @@ remote.
   recent logs, ANSI/IP/user-regex redaction, 429/5xx handling, debounced
   state-change posts). See `docs/discord.md`.
 - `packages/mcpanel_gui` — PySide6 client: node list with one-click local
-  node, status panel + start/stop/restart, live console (pause-on-scroll-up,
-  command history), settings tab (launch/probe/restart/Discord + send test).
-  `ApiClient` is Qt-free; tokens live in the OS keyring or a 0600 fallback
-  file; sockets run off the UI thread with reconnect/backoff.
+  node, add/edit/remove remote nodes (URL + token), status panel +
+  start/stop/restart, live console (pause-on-scroll-up, command history),
+  settings tab (launch/probe/restart/Discord + send test). `ApiClient` is
+  Qt-free; tokens live in the OS keyring or a 0600 fallback file; sockets run
+  off the UI thread with reconnect/backoff and clear
+  offline/unauthorized/incompatible states.
+- `docs/remote-access.md` — SSH port-forward (recommended) and reverse proxy
+  with TLS (Caddy/nginx), plus verification steps.
 - `docs/openapi.json` — OpenAPI schema generated from the daemon.
 - `config.example.toml` — the annotated daemon configuration.
 
@@ -87,7 +91,7 @@ uv run python -m mcpanel_daemon.openapi > docs/openapi.json   # regenerate schem
 - [x] **3** REST/WebSocket API + auth
 - [x] **4** Discord notifier
 - [x] **5** GUI for a single node
-- [ ] **6** Multi-node/remote support + docs
+- [x] **6** Multi-node/remote support + docs
 - [ ] **7** Hardening: error paths, graceful shutdown, packaging, examples
 
 ## License

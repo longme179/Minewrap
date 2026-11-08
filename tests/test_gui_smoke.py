@@ -37,3 +37,21 @@ def test_add_local_node_is_one_click(qapp: QApplication, tmp_path: Path) -> None
     assert nodes[0].name == "Local"
     assert nodes[0].url == "http://127.0.0.1:8080"
     window.close()
+
+
+def test_multiple_nodes_are_listed_and_persisted(qapp: QApplication, tmp_path: Path) -> None:
+    store = NodeStore(tmp_path, force_file_tokens=True)
+    alpha = store.add("Alpha", "http://127.0.0.1:8080")
+    beta = store.add("Beta", "https://mc.example.com")
+
+    window = MainWindow(store, auto_connect=False)
+    listed = window._node_items  # pyright: ignore[reportPrivateUsage]
+    assert set(listed) == {alpha.id, beta.id}
+
+    store.update(alpha.id, name="Alpha 2", url="http://127.0.0.1:9090")
+    reloaded = NodeStore(tmp_path, force_file_tokens=True)
+    edited = reloaded.get(alpha.id)
+    assert edited is not None
+    assert edited.name == "Alpha 2"
+    assert edited.url == "http://127.0.0.1:9090"
+    window.close()

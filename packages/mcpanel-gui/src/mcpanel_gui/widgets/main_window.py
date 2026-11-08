@@ -60,16 +60,24 @@ STATE_COLORS = {
 NODE_ROLE = Qt.ItemDataRole.UserRole
 
 
-class _RemoteNodeDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None) -> None:
+class _NodeDialog(QDialog):
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        node: Node | None = None,
+    ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Add remote node")
+        editing = node is not None
+        self.setWindowTitle("Edit node" if editing else "Add remote node")
         form = QFormLayout(self)
-        self.name = QLineEdit("Remote", self)
-        self.url = QLineEdit("http://", self)
+        self.name = QLineEdit(node.name if node is not None else "Remote", self)
+        self.url = QLineEdit(node.url if node is not None else "http://", self)
         self.token = QLineEdit(self)
         self.token.setEchoMode(QLineEdit.EchoMode.Password)
-        self.token.setPlaceholderText("Node API token")
+        self.token.setPlaceholderText(
+            "leave blank to keep the current token" if editing else "Node API token"
+        )
         form.addRow("Name", self.name)
         form.addRow("URL", self.url)
         form.addRow("Token", self.token)
@@ -106,15 +114,18 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         add_local = QAction("Add local node", self)
         add_remote = QAction("Add remote node", self)
+        edit = QAction("Edit node", self)
         reconnect = QAction("Reconnect", self)
         remove = QAction("Remove node", self)
         add_local.triggered.connect(self._add_local_node)
         add_remote.triggered.connect(self._add_remote_node)
+        edit.triggered.connect(self._edit_selected)
         reconnect.triggered.connect(self._reconnect_selected)
         remove.triggered.connect(self._remove_selected)
         toolbar.addAction(add_local)
         toolbar.addAction(add_remote)
         toolbar.addSeparator()
+        toolbar.addAction(edit)
         toolbar.addAction(reconnect)
         toolbar.addAction(remove)
 
@@ -327,7 +338,7 @@ class MainWindow(QMainWindow):
             self._start_session(node)
 
     def _add_remote_node(self) -> None:
-        dialog = _RemoteNodeDialog(self)
+        dialog = _NodeDialog(self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
@@ -340,6 +351,34 @@ class MainWindow(QMainWindow):
         self._add_node_item(node)
         if self._auto_connect:
             self._start_session(node)
+
+    def _edit_selected(self) -> None:
+        node_id = self._selected_node_id()
+        if node_id is None:
+            return
+        node = self._store.get(node_id)
+        if node is None:
+            return
+        dialog = _NodeDialog(self, node=node)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            self._store.update(node.id, name=dialog.name.text(), url=dialog.url.text())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid node URL", str(exc))
+            return
+        token = dialog.token.text().strip()
+        if token:
+            self._store.set_token(node.id, token)
+        item = self._node_items.get(node.id)
+        if item is not None:
+            item.setText(0, node.name)
+            item.setToolTip(0, node.url)
+        view = self._views.get(node.id)
+        if view is not None:
+            view.name = node.name
+            view.url = node.url
+        self._restart_session(node.id)
 
     def _selected_node_id(self) -> str | None:
         current = self._tree.currentItem()
@@ -395,10 +434,13 @@ class MainWindow(QMainWindow):
         if node_id is None:
             return
         menu = QMenu(self)
+        edit = menu.addAction("Edit node…")
         reconnect = menu.addAction("Reconnect")
         remove = menu.addAction("Remove node")
         chosen = menu.exec(self._tree.viewport().mapToGlobal(position))
-        if chosen is reconnect:
+        if chosen is edit:
+            self._edit_selected()
+        elif chosen is reconnect:
             self._restart_session(node_id)
         elif chosen is remove:
             self._remove_selected()
