@@ -22,3 +22,7 @@ token
 # Editors
 .idea/
 .vscode/
+
+# Build artifacts
+build/
+dist/

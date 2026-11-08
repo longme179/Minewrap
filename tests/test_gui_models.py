@@ -1,5 +1,8 @@
 """GUI-side unit tests: node store, tokens, console model, view models."""
 
+# pyright: basic
+# QtCore signals are untyped (PySide6 ships no stubs), so this file uses basic mode.
+
 from __future__ import annotations
 
 import json

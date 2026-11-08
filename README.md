@@ -43,6 +43,7 @@ currently contains:
 - `docs/openapi.json` — OpenAPI schema generated from the daemon.
 - `config.example.toml` — the annotated daemon configuration.
 - `packaging/mcpanel-daemon.service` — systemd user unit example.
+- `packaging/build-linux.sh` — PyInstaller + AppImage build (portable binaries).
 - `LICENSE` — MIT.
 
 `mcpanel-daemon --config config.toml` runs the daemon and `mcpanel-gui` the
@@ -78,6 +79,35 @@ journalctl --user -u mcpanel-daemon -f
 The daemon stops its Minecraft children itself on SIGTERM (the app lifespan
 runs the shutdown); the unit's `TimeoutStopSec` covers the slowest stop
 escalation.
+
+## Portable binaries / AppImage
+
+For machines without Python/uv:
+
+```sh
+./packaging/build-linux.sh
+```
+
+Produces on Linux x86_64 (verified sizes):
+
+| Artifact | What it is |
+|---|---|
+| `dist/mcpanel-daemon` | single-file daemon binary (~21 MB) |
+| `dist/mcpanel-gui/` | portable GUI directory, Qt bundled (~187 MB) |
+| `dist/mcpanel-gui-x86_64.AppImage` | one-file desktop app (~73 MB) |
+
+The daemon binary keeps the same contract — `mcpanel-daemon --config
+config.toml` — so point the systemd unit's `ExecStart` at it. The AppImage
+needs FUSE; where FUSE is unavailable, run it with
+`--appimage-extract-and-run`.
+
+Caveats: PyInstaller does not cross-compile — build on the target OS. The
+same specs produce a `.exe` on Windows and a `.app` on macOS when run there
+(the AppImage step is Linux-only). The GUI depends on `PySide6-Essentials`
+(QtCore/QtGui/QtWidgets only) to keep bundles small; the daemon bundle
+collects uvicorn's dynamically imported modules explicitly. Qt/GTK desktop
+integration still comes from the host (AppImage bundles Qt, not system
+theme engines).
 
 ## Layout
 

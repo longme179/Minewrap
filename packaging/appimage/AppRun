@@ -1,0 +1,4 @@
+#!/bin/sh
+# AppImage entry point: launch the bundled GUI.
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/lib/mcpanel-gui/mcpanel-gui" "$@"

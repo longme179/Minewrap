@@ -1,5 +1,8 @@
 """Offscreen window smoke tests (no display required)."""
 
+# pyright: basic
+# PySide6 ships no type stubs, so this file uses basic mode.
+
 from __future__ import annotations
 
 from pathlib import Path
