@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import socket
 import sys
 import time
 import tomllib
@@ -30,6 +31,13 @@ TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
+def _closed_port() -> int:
+    """A loopback port that is free right now (so probes reliably fail)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
 def make_app(
     tmp_path: Path,
     *fake_args: str,
@@ -42,6 +50,7 @@ def make_app(
         "java_path": sys.executable,
         "launch_args": [str(FAKE_SERVER), *fake_args],
         "restart": {"policy": "never"},
+        "probe": {"host": "127.0.0.1", "port": _closed_port()},
     }
     if discord is not None:
         instance["discord"] = discord

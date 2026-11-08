@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import socket
 import sys
 from pathlib import Path
 
@@ -13,6 +14,13 @@ from mcpanel_daemon.instances import InstanceManager
 from mcpanel_daemon.process_manager import State
 
 FAKE_SERVER = Path(__file__).resolve().parent / "fake_mc_server.py"
+
+
+def _closed_port() -> int:
+    """A loopback port that is free right now (so probes reliably fail)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 async def test_shutdown_stops_children_pollers_and_notifiers(tmp_path: Path) -> None:
@@ -28,6 +36,7 @@ async def test_shutdown_stops_children_pollers_and_notifiers(tmp_path: Path) -> 
                     "autostart": True,
                     "restart": {"policy": "never"},
                     "discord": {"enabled": False},
+                    "probe": {"host": "127.0.0.1", "port": _closed_port()},
                 }
             ],
         }
@@ -62,6 +71,7 @@ async def test_autostart_failure_does_not_abort_manager_start(tmp_path: Path) ->
                     "launch_args": ["-version"],
                     "autostart": True,
                     "restart": {"policy": "never"},
+                    "probe": {"host": "127.0.0.1", "port": _closed_port()},
                 }
             ],
         }
