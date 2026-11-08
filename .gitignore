@@ -16,6 +16,9 @@ data/
 *.token
 token
 
+# Agent session state
+.commandcode/
+
 # Editors
 .idea/
 .vscode/
