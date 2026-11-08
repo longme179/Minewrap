@@ -237,12 +237,18 @@ class LocalSetupDialog(QDialog):
             return None
 
         jar = self.jar_path.text().strip()
-        if jar and not Path(jar).expanduser().is_file():
+        if not jar:
+            self.status.setText(
+                "Choose the server jar (the file passed to -jar). Extra args "
+                "like 'nogui' alone cannot start the server."
+            )
+            return None
+        if not Path(jar).expanduser().is_file():
             self.status.setText("The server jar path does not exist.")
             return None
 
         extras = self.extra_args.text().split()
-        launch_args = (["-jar", str(Path(jar).expanduser())] if jar else []) + extras
+        launch_args = ["-jar", str(Path(jar).expanduser()), *extras]
         if not launch_args:
             self.status.setText("Provide the server jar and/or launch arguments.")
             return None

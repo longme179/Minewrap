@@ -17,6 +17,7 @@ import signal
 import subprocess
 import sys
 import time
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -213,6 +214,14 @@ def _verify_token(url: str, token: str) -> None:
         raise LaunchError(f"daemon responded with HTTP {response.status_code}")
 
 
+def _config_matches(path: Path, config: dict[str, Any]) -> bool:
+    try:
+        existing = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    return existing == config
+
+
 def provision_local_daemon(
     *,
     config_path: Path,
@@ -232,7 +241,6 @@ def provision_local_daemon(
     config = build_config(
         host=host, port=port, data_dir=data_dir, token=token, instance=instance
     )
-    write_config(config_path, config, overwrite=overwrite)
 
     data_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(data_dir, DIR_MODE)
@@ -242,7 +250,14 @@ def provision_local_daemon(
     process: subprocess.Popen[bytes] | None = None
     log_path = data_dir / "daemon.log"
 
-    if not _healthy(url):
+    running = _healthy(url)
+    if running and not _config_matches(config_path, config):
+        raise LaunchError(
+            f"a daemon is already running at {url} with a different configuration; "
+            "stop it first, or edit the instance in the GUI Settings tab"
+        )
+    if not running:
+        write_config(config_path, config, overwrite=overwrite)
         command = [*find_daemon_command(config_path, exe=exe), "--config", str(config_path)]
         log_file = log_path.open("ab")
         try:

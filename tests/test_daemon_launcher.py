@@ -261,3 +261,59 @@ def test_provision_reads_generated_token(tmp_path: Path) -> None:
             api.close()
     finally:
         stop_daemon(result.process)
+
+
+def test_provision_reuses_running_daemon_with_identical_config(tmp_path: Path) -> None:
+    port = _free_port()
+    data_dir = tmp_path / "data"
+    config_path = tmp_path / "config.toml"
+    spec = _spec(tmp_path)
+    first = provision_local_daemon(
+        config_path=config_path,
+        host="127.0.0.1",
+        port=port,
+        data_dir=data_dir,
+        instance=spec,
+        token="wizard-token",
+    )
+    assert first.process is not None
+    try:
+        second = provision_local_daemon(
+            config_path=config_path,
+            host="127.0.0.1",
+            port=port,
+            data_dir=data_dir,
+            instance=spec,
+            token="wizard-token",
+        )
+        assert second.process is None
+        assert second.url == first.url
+    finally:
+        stop_daemon(first.process)
+
+
+def test_provision_refuses_changed_config_while_daemon_runs(tmp_path: Path) -> None:
+    port = _free_port()
+    data_dir = tmp_path / "data"
+    config_path = tmp_path / "config.toml"
+    first = provision_local_daemon(
+        config_path=config_path,
+        host="127.0.0.1",
+        port=port,
+        data_dir=data_dir,
+        instance=_spec(tmp_path),
+        token="wizard-token",
+    )
+    assert first.process is not None
+    try:
+        with pytest.raises(LaunchError, match="different configuration"):
+            provision_local_daemon(
+                config_path=config_path,
+                host="127.0.0.1",
+                port=port,
+                data_dir=data_dir,
+                instance=_spec(tmp_path, jvm_args=["-Xmx2G"]),
+                token="wizard-token",
+            )
+    finally:
+        stop_daemon(first.process)

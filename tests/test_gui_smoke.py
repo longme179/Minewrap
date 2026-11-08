@@ -68,3 +68,25 @@ def test_local_setup_dialog_constructs(qapp: QApplication) -> None:
     assert dialog.daemon_port.value() == 8080
     assert slugify_instance_id("My Server!") == "my-server"
     dialog.close()
+
+
+def test_local_setup_dialog_requires_server_jar(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    from mcpanel_gui.widgets.local_setup_dialog import LocalSetupDialog
+
+    dialog = LocalSetupDialog()
+    dialog.work_dir.setText(str(tmp_path))
+    dialog.extra_args.setText("nogui")
+    # 'nogui' alone would make java treat it as the main class.
+    collected = dialog._collect()  # pyright: ignore[reportPrivateUsage]
+    assert collected is None
+    assert "server jar" in dialog.status.text().lower()
+
+    jar = tmp_path / "server.jar"
+    jar.write_bytes(b"")
+    dialog.jar_path.setText(str(jar))
+    collected = dialog._collect()  # pyright: ignore[reportPrivateUsage]
+    assert collected is not None
+    assert collected.launch_args == ["-jar", str(jar), "nogui"]
+    dialog.close()
