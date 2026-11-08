@@ -25,8 +25,9 @@ class _StrictModel(BaseModel):
 class InstanceDefaults(_StrictModel):
     """Per-instance defaults; each instance may override."""
 
-    startup_timeout: float = Field(default=300.0, ge=1.0)
-    stop_timeout: float = Field(default=60.0, ge=1.0)
+    startup_timeout: float = Field(default=300.0, ge=0.1)
+    stop_timeout: float = Field(default=60.0, ge=0.1)
+    kill_grace_seconds: float = Field(default=5.0, ge=0.1)
     done_regex: str = DEFAULT_DONE_REGEX
     log_buffer_lines: int = Field(default=500, ge=10)
     log_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)

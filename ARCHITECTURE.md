@@ -54,6 +54,7 @@ stateDiagram-v2
     [*] --> offline
     offline --> starting: start requested
     starting --> online: done-regex line seen
+    starting --> stopping: stop requested
     starting --> crashed: exit, no stop requested / startup timeout
     online --> stopping: stop requested
     stopping --> offline: clean exit
@@ -66,6 +67,7 @@ stateDiagram-v2
 |---|---|---|---|
 | offline | start requested | starting | `create_subprocess_exec`, own process group (`start_new_session=True`), `stdout=PIPE`, `stderr=STDOUT` |
 | starting | done line matches `done_regex` | online | default `Done \(\d+(\.\d+)?s\)! For help`, configurable |
+| starting | stop requested | stopping | user stops during boot; graceful `stop` then escalation |
 | starting | process exits, no stop requested | crashed | reason `crash_during_start` |
 | starting | `startup_timeout` elapsed | crashed | reason `startup_timeout`; kill the process tree |
 | online | stop requested | stopping | `requested_stop=True`; write `stop\n` to stdin |

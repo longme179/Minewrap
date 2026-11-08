@@ -16,6 +16,7 @@ unresponsive_after_failures = 2  # Consecutive probe failures -> "unresponsive".
 [daemon.defaults]         # Per-instance defaults; each [[instances]] may override.
 startup_timeout = 300     # Seconds to wait for the "Done" line before giving up.
 stop_timeout = 60         # Seconds after "stop" before SIGTERM, then SIGKILL.
+kill_grace_seconds = 5    # Seconds between SIGTERM and SIGKILL during escalation.
 done_regex = 'Done \(\d+(\.\d+)?s\)! For help'   # Configurable: log formats differ.
 log_buffer_lines = 500    # In-memory ring buffer per instance.
 log_max_bytes = 10485760  # Rotating log file size (10 MiB).

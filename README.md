@@ -14,17 +14,21 @@ remote.
 
 ## Status
 
-**Phase 0 — architecture and contract.** This repository currently contains:
+**Phase 1 — process manager.** This repository currently contains:
 
 - `ARCHITECTURE.md` — design, state machine, data flow, security model.
 - `packages/mcpanel_common` — the pydantic models both sides share: the daemon
   config schema and the full API contract (REST DTOs + WebSocket messages).
+- `packages/mcpanel_daemon` — the log ring buffer (with rotating file tee),
+  event bus, and process manager (spawn/stop/restart, crash/restart policy,
+  startup timeout, SIGTERM/SIGKILL escalation), tested against
+  `tests/fake_mc_server.py`.
 - `docs/openapi.json` — the OpenAPI schema generated from the API skeleton in
   `mcpanel_daemon` (route handlers are stubs until Phase 3).
 - `config.example.toml` — the annotated daemon configuration.
 
-**Nothing runs a server yet.** The daemon, Discord notifier, and GUI land in
-subsequent phases; see the phase checklist below.
+**There is no daemon entry point or HTTP server yet** — the API lands in
+Phase 3. See the phase checklist below.
 
 ## Layout
 
@@ -52,7 +56,7 @@ uv run python -m mcpanel_daemon.openapi > docs/openapi.json   # regenerate schem
 ## Phase checklist
 
 - [x] **0** Architecture, API contract, config schema
-- [ ] **1** Process manager + log buffer + state machine + fake server
+- [x] **1** Process manager + log buffer + state machine + fake server
 - [ ] **2** Status poller and snapshot merging
 - [ ] **3** REST/WebSocket API + auth
 - [ ] **4** Discord notifier
