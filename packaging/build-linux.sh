@@ -2,7 +2,7 @@
 # Build Linux artifacts:
 #   dist/mcpanel-daemon                  single-file daemon binary
 #   dist/mcpanel-gui/                    one-folder GUI (portable directory)
-#   dist/mcpanel-gui-x86_64.AppImage     one-file desktop app
+#   dist/mcpanel-x86_64.AppImage     one-file desktop app
 #
 # Requirements: Linux x86_64, curl (for appimagetool), FUSE optional
 # (appimagetool is run with --appimage-extract-and-run).
@@ -59,7 +59,7 @@ if [ ! -x "$TOOL" ]; then
 fi
 
 echo "==> building AppImage"
-ARCH=x86_64 "$TOOL" --appimage-extract-and-run "$APPDIR" "$DIST/mcpanel-gui-x86_64.AppImage"
+ARCH=x86_64 "$TOOL" --appimage-extract-and-run "$APPDIR" "$DIST/mcpanel-x86_64.AppImage"
 echo
 echo "Done:"
-du -sh "$DIST/mcpanel-daemon" "$DIST/mcpanel-gui" "$DIST/mcpanel-gui-x86_64.AppImage" 2>/dev/null || true
+du -sh "$DIST/mcpanel-daemon" "$DIST/mcpanel-gui" "$DIST/mcpanel-x86_64.AppImage" 2>/dev/null || true

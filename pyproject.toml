@@ -15,6 +15,7 @@ dev = [
     "ruff>=0.8",
     "pyright>=1.1.380",
     "pyinstaller>=6.16",
+    "httpx2>=2.16",
 ]
 
 [tool.ruff]

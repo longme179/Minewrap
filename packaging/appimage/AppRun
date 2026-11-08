@@ -1,9 +1,9 @@
 #!/bin/sh
 # AppImage entry point.
 #
-#   mcpanel-gui-x86_64.AppImage                        -> GUI
-#   mcpanel-gui-x86_64.AppImage --daemon --config ...  -> bundled daemon
-#   mcpanel-gui-x86_64.AppImage --daemon --help        -> daemon usage
+#   mcpanel-x86_64.AppImage                        -> GUI
+#   mcpanel-x86_64.AppImage --daemon --config ...  -> bundled daemon
+#   mcpanel-x86_64.AppImage --daemon --help        -> daemon usage
 HERE="$(dirname "$(readlink -f "$0")")"
 
 if [ "${1:-}" = "--daemon" ]; then

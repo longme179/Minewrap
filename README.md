@@ -51,18 +51,19 @@ client. Known limitation (documented in ARCHITECTURE.md): a server child dies
 with its daemon — detached mode is a future option, not built. RCON-based TPS
 is config-reserved but not implemented in v0.1.
 
-## Quickstart (daemon + GUI)
+## Quickstart (single-file AppImage)
 
-Fastest path, all in the GUI:
+Download `mcpanel-x86_64.AppImage` — it is the all-in-one build (GUI + daemon
+in one file, no separate install). On first launch the setup wizard opens by
+itself:
 
-```sh
-uv run mcpanel-gui
-# Click "Set up a local daemon…" (also the button on the empty pane):
-#   - pick your server directory and server jar
-#   - keep the defaults (bind 127.0.0.1:8080, probe 25565)
-#   - "Create & start" writes config.toml, starts the daemon (detached),
-#     reads the API token and connects the node automatically.
-```
+- pick your server directory and server jar
+- keep the defaults (bind 127.0.0.1:8080, probe 25565)
+- "Create & start" writes `config.toml`, starts the bundled daemon
+  (detached, so it keeps running when the GUI closes), reads the API token
+  and connects the node automatically.
+
+From source, the same flow is `uv run mcpanel-gui`.
 
 Prefer the terminal, or targeting a remote machine:
 
@@ -104,17 +105,17 @@ Produces on Linux x86_64 (verified sizes):
 
 | Artifact | What it is |
 |---|---|
-| `dist/mcpanel-daemon` | single-file daemon binary (~21 MB) |
-| `dist/mcpanel-gui/` | portable GUI directory, Qt bundled (~187 MB) |
-| `dist/mcpanel-gui-x86_64.AppImage` | one-file desktop app incl. the daemon (~93 MB) |
+| `dist/mcpanel-x86_64.AppImage` | **all-in-one**: GUI + daemon in one file (~93 MB) |
+| `dist/mcpanel-daemon` | standalone daemon binary for servers (~21 MB) |
+| `dist/mcpanel-gui/` | portable GUI directory (for development) |
 
-The daemon binary keeps the same contract — `mcpanel-daemon --config
-config.toml` — so point the systemd unit's `ExecStart` at it. The AppImage
-also carries the daemon:
+End users only need `mcpanel-x86_64.AppImage`. It runs the GUI by default and
+carries the daemon for the first-run setup; the daemon binary keeps the same
+contract for headless deployments:
 
 ```sh
-./mcpanel-gui-x86_64.AppImage                          # GUI
-./mcpanel-gui-x86_64.AppImage --daemon --config config.toml   # daemon
+./mcpanel-x86_64.AppImage                          # GUI
+./mcpanel-x86_64.AppImage --daemon --config config.toml   # daemon
 ```
 
 The AppImage needs FUSE; where FUSE is unavailable, run it with

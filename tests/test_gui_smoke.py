@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -113,4 +114,34 @@ def test_selecting_instance_opens_page(qapp: QApplication, tmp_path: Path) -> No
     window._tree.setCurrentItem(item)
     qapp.processEvents()
     assert isinstance(window._stack.currentWidget(), InstancePage)  # pyright: ignore[reportPrivateUsage]
+    window.close()
+
+
+def test_first_run_opens_local_setup(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    opened: list[bool] = []
+
+    class _FakeSignals:
+        def connect(self, _slot: object) -> None:
+            pass
+
+    class _FakeDialog:
+        def __init__(self, _parent: object = None) -> None:
+            self.setup_complete = _FakeSignals()
+            opened.append(True)
+
+        def exec(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        "mcpanel_gui.widgets.main_window.LocalSetupDialog", _FakeDialog
+    )
+    store = NodeStore(tmp_path, force_file_tokens=True)
+    window = MainWindow(store, auto_connect=True)
+    deadline = time.time() + 2
+    while time.time() < deadline and not opened:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert opened
     window.close()

@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QBrush, QCloseEvent, QColor
 from PySide6.QtWidgets import (
     QDialog,
@@ -177,6 +177,10 @@ class MainWindow(QMainWindow):
             self._add_node_item(node)
             if auto_connect:
                 self._start_session(node)
+
+        if auto_connect and not self._store.nodes:
+            # All-in-one first run: open the local daemon setup right away.
+            QTimer.singleShot(250, self._open_local_setup)
 
     # -------------------------------------------------------------- node list
 

@@ -12,7 +12,8 @@ import sys
 import time
 import tomllib
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from concurrent.futures import CancelledError
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, cast
 
@@ -105,6 +106,35 @@ def recv_until(
             return message
     raise AssertionError("expected WebSocket message not received")
 
+
+@contextmanager
+def ws_session(
+    client: TestClient, url: str, headers: dict[str, str] = AUTH
+) -> Iterator[WebSocketTestSession]:
+    """WebSocket session tolerant of Starlette TestClient's teardown race.
+
+    The portal used by Starlette's test client intermittently reports its own
+    internal future as cancelled when a session closes; the app side is fine.
+    We retry the handshake and ignore that cancellation on exit, while still
+    propagating any failure raised by the test body.
+    """
+    session: WebSocketTestSession | None = None
+    ws: WebSocketTestSession | None = None
+    for attempt in range(3):
+        session = client.websocket_connect(url, headers=headers)
+        try:
+            ws = session.__enter__()
+        except CancelledError:
+            if attempt == 2:
+                raise
+            continue
+        break
+    assert ws is not None and session is not None
+    try:
+        yield ws
+    finally:
+        with suppress(CancelledError):
+            session.__exit__(None, None, None)
 
 # ------------------------------------------------------------------ REST tests
 
@@ -269,7 +299,7 @@ def test_console_ws_backfill_command_and_live_stream(tmp_path: Path) -> None:
         wait_state(client, "online")
 
         url = "/api/v1/instances/test/console"
-        with client.websocket_connect(url, headers=AUTH) as ws:
+        with ws_session(client, url) as ws:
             first = ws.receive_json()
             assert first["type"] == "log"
             assert "seq" in first["line"]
@@ -306,7 +336,7 @@ def test_console_ws_snapshot_on_every_connect(tmp_path: Path) -> None:
 
         url = "/api/v1/instances/test/console"
         for _ in range(2):  # reconnect without any state change in between
-            with client.websocket_connect(url, headers=AUTH) as ws:
+            with ws_session(client, url) as ws:
                 snapshot = recv_until(ws, lambda m: m["type"] == "snapshot")
                 assert snapshot["snapshot"]["process"]["state"] == "online"
 
@@ -317,7 +347,7 @@ def test_console_ws_hello_since_seq_replays_from_start(tmp_path: Path) -> None:
         wait_state(client, "online")
 
         url = "/api/v1/instances/test/console"
-        with client.websocket_connect(url, headers=AUTH) as ws:
+        with ws_session(client, url) as ws:
             recv_until(ws, lambda m: m["type"] == "caught_up")
             ws.send_json({"type": "hello", "since_seq": 0})
             replayed = recv_until(ws, lambda m: m["type"] == "log")
@@ -341,7 +371,7 @@ def test_console_ws_unknown_instance_sends_error(tmp_path: Path) -> None:
     url = "/api/v1/instances/nope/console"
     with (
         running_app(tmp_path) as (client, _),
-        client.websocket_connect(url, headers=AUTH) as ws,
+        ws_session(client, url) as ws,
     ):
         message = ws.receive_json()
         assert message["type"] == "error"
@@ -351,7 +381,7 @@ def test_console_ws_unknown_instance_sends_error(tmp_path: Path) -> None:
 def test_events_ws_hello_and_state_changes(tmp_path: Path) -> None:
     with (
         running_app(tmp_path) as (client, _),
-        client.websocket_connect("/api/v1/events", headers=AUTH) as ws,
+        ws_session(client, "/api/v1/events") as ws,
     ):
         hello = ws.receive_json()
         assert hello["type"] == "hello_ok"
