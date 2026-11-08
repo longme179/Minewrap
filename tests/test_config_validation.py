@@ -158,7 +158,7 @@ def test_bad_redact_regex_rejected() -> None:
 
 def test_interval_ranges_enforced() -> None:
     data = _base_toml()
-    data["daemon"]["status_poll_interval"] = 0.5
+    data["daemon"]["status_poll_interval"] = 0.05
     with pytest.raises(ValidationError):
         DaemonConfig.model_validate(data)
 

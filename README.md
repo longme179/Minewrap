@@ -14,7 +14,7 @@ remote.
 
 ## Status
 
-**Phase 1 — process manager.** This repository currently contains:
+**Phase 3 — runnable daemon with API.** This repository currently contains:
 
 - `ARCHITECTURE.md` — design, state machine, data flow, security model.
 - `packages/mcpanel_common` — the pydantic models both sides share: the daemon
@@ -22,15 +22,25 @@ remote.
 - `packages/mcpanel_daemon` — the log ring buffer (with rotating file tee),
   event bus, process manager (spawn/stop/restart, crash/restart policy,
   startup timeout, SIGTERM/SIGKILL escalation), the mcstatus status poller
-  (async status/query, probe errors never escape the loop), and the merged
-  instance state (process vs reachability vs combined state) — tested against
-  `tests/fake_mc_server.py` and fake probes.
-- `docs/openapi.json` — the OpenAPI schema generated from the API skeleton in
-  `mcpanel_daemon` (route handlers are stubs until Phase 3).
+  (async status/query, probe errors never escape the loop), merged instance
+  state, and the FastAPI daemon: bearer auth, REST routes, `/events` and
+  per-instance console WebSockets (backfill, live stream, slow-client
+  resync), TOML config loading/persisting (0600) and token management.
+- `docs/openapi.json` — OpenAPI schema generated from the daemon.
 - `config.example.toml` — the annotated daemon configuration.
 
-**There is no daemon entry point or HTTP server yet** — the API lands in
-Phase 3. See the phase checklist below.
+`mcpanel-daemon --config config.toml` runs the daemon; the GUI lands in Phase 5.
+See the phase checklist below.
+
+## Quickstart (daemon)
+
+```sh
+uv sync --all-packages
+cp config.example.toml config.toml     # edit the [[instances]] section
+uv run mcpanel-daemon --config config.toml
+# On first run the API token is printed once and stored in <data_dir>/token (0600).
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/v1/instances
+```
 
 ## Layout
 
@@ -60,7 +70,7 @@ uv run python -m mcpanel_daemon.openapi > docs/openapi.json   # regenerate schem
 - [x] **0** Architecture, API contract, config schema
 - [x] **1** Process manager + log buffer + state machine + fake server
 - [x] **2** Status poller and snapshot merging
-- [ ] **3** REST/WebSocket API + auth
+- [x] **3** REST/WebSocket API + auth
 - [ ] **4** Discord notifier
 - [ ] **5** GUI for a single node
 - [ ] **6** Multi-node/remote support + docs

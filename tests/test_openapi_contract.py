@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from mcpanel_common.api import CombinedState, ProcessState
-from mcpanel_daemon.openapi import create_app
+from mcpanel_daemon.app import create_app
 
 EXPECTED_REST_PATHS = {
     "/health": {"get"},

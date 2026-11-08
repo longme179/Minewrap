@@ -18,6 +18,15 @@ INSTANCE_ID_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$")
 DEFAULT_DONE_REGEX = r"Done \(\d+(\.\d+)?s\)! For help"
 
 
+def validate_redact_regexes(patterns: list[str]) -> list[str]:
+    for pattern in patterns:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(f"invalid redact regex {pattern!r}: {exc}") from exc
+    return patterns
+
+
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -41,7 +50,7 @@ class DaemonSettings(_StrictModel):
     port: int = Field(default=8080, ge=1, le=65535)
     data_dir: str = "./data"
     token: str | None = None  # optional explicit token (reverse-proxy setups)
-    status_poll_interval: float = Field(default=15.0, ge=1.0)
+    status_poll_interval: float = Field(default=15.0, ge=0.1)
     unresponsive_after_failures: int = Field(default=2, ge=1)
     defaults: InstanceDefaults = Field(default_factory=InstanceDefaults)
 
@@ -93,12 +102,7 @@ class DiscordConfig(_StrictModel):
     @field_validator("redact_regexes")
     @classmethod
     def _compile_regexes(cls, v: list[str]) -> list[str]:
-        for pattern in v:
-            try:
-                re.compile(pattern)
-            except re.error as exc:
-                raise ValueError(f"invalid redact regex {pattern!r}: {exc}") from exc
-        return v
+        return validate_redact_regexes(v)
 
 
 class InstanceConfig(_StrictModel):

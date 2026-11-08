@@ -118,9 +118,16 @@ class ProcessManager:
             State.STOPPING,
         ):
             uptime = (datetime.now(UTC) - self._started_at).total_seconds()
+        pid: int | None = None
+        if (
+            self._process is not None
+            and self._process.returncode is None
+            and self._state in (State.STARTING, State.ONLINE, State.STOPPING)
+        ):
+            pid = self._process.pid
         return ProcessStatus(
             state=self._state,
-            pid=self._process.pid if self._process is not None else None,
+            pid=pid,
             started_at=self._started_at,
             stopped_at=self._stopped_at,
             exit_code=self._exit_code,
@@ -197,6 +204,12 @@ class ProcessManager:
         async with asyncio.timeout(timeout_s):
             while self._state is not target:
                 await self._state_changed.wait()
+
+    def update_config(self, config: InstanceConfig) -> None:
+        """Apply a validated config; launch changes take effect on next start."""
+        if config.id != self._config.id:  # pragma: no cover - API keeps ids fixed
+            raise ValueError("instance id is immutable")
+        self._config = config
 
     async def close(self) -> None:
         """Stop background tasks and kill the child (daemon shutdown)."""

@@ -12,6 +12,9 @@ dependencies = [
     "tomli-w>=1.0",
 ]
 
+[project.scripts]
+mcpanel-daemon = "mcpanel_daemon.__main__:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

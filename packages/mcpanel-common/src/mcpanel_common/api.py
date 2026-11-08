@@ -12,6 +12,7 @@ from mcpanel_common.config import (
     ProbeConfig,
     RconConfig,
     RestartConfig,
+    validate_redact_regexes,
 )
 
 ProcessState = Literal["offline", "starting", "online", "stopping", "crashed"]
@@ -134,6 +135,11 @@ class DiscordConfigUpdate(_StrictModel):
     ].default
     redact_regexes: list[str] = Field(default_factory=list)
     webhook_url: SecretStr | None = None  # None = keep the currently stored URL
+
+    @field_validator("redact_regexes")
+    @classmethod
+    def _compile_regexes(cls, v: list[str]) -> list[str]:
+        return validate_redact_regexes(v)
 
 
 class ConfigUpdateRequest(_StrictModel):

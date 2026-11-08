@@ -146,7 +146,8 @@ A probe failure while the process runs **never** reports `offline`.
   login form), user-defined redaction regexes, line truncation, and a char budget
   (~1500 by default, well under Discord's 4096-char embed-description limit).
 - WebSocket auth uses the `Authorization` header only — never `?token=` query
-  strings, which leak into access logs.
+  strings, which leak into access logs. An invalid token is rejected at the
+  handshake with an HTTP 401 denial (the same dependency guards REST and WS).
 
 ## Known limitations (documented, not hidden)
 
