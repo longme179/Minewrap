@@ -90,3 +90,27 @@ def test_local_setup_dialog_requires_server_jar(
     assert collected is not None
     assert collected.launch_args == ["-jar", str(jar), "nogui"]
     dialog.close()
+
+
+def test_selecting_instance_opens_page(qapp: QApplication, tmp_path: Path) -> None:
+    """Regression: clicking an instance must replace the placeholder pane."""
+    from mcpanel_common.api import InstanceSummary
+    from mcpanel_gui.apiclient import NodeApi
+    from mcpanel_gui.widgets.instance_page import InstancePage
+
+    store = NodeStore(tmp_path, force_file_tokens=True)
+    node = store.add("Local", "http://127.0.0.1:9")
+    window = MainWindow(
+        store,
+        api_factory=lambda url, token: NodeApi(url, token, timeout=0.2),
+        auto_connect=False,
+    )
+    window._on_summaries(  # pyright: ignore[reportPrivateUsage]
+        node.id,
+        [InstanceSummary(id="minecraft", name="Minecraft", combined_state="online")],
+    )
+    item = window._instance_items[(node.id, "minecraft")]  # pyright: ignore[reportPrivateUsage]
+    window._tree.setCurrentItem(item)
+    qapp.processEvents()
+    assert isinstance(window._stack.currentWidget(), InstancePage)  # pyright: ignore[reportPrivateUsage]
+    window.close()

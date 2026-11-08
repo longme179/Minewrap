@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from typing import Any
 
@@ -24,12 +25,18 @@ class _Task(QRunnable):
         self.signals = _Signals()
 
     def run(self) -> None:
+        # The window may be closing; emitting from a deleted signal source
+        # raises RuntimeError, which must not escape the worker thread.
         try:
             result = self._fn()
         except Exception as exc:
-            self.signals.error.emit(exc)
-            return
-        self.signals.done.emit(result)
+            with contextlib.suppress(RuntimeError):
+                self.signals.error.emit(exc)
+        else:
+            with contextlib.suppress(RuntimeError):
+                self.signals.done.emit(result)
+        finally:
+            _keep_alive.discard(self)
 
 
 def run_async(
@@ -40,11 +47,5 @@ def run_async(
     task = _Task(fn)
     task.signals.done.connect(on_done)
     task.signals.error.connect(on_error)
-
-    def _cleanup(*_: object) -> None:
-        _keep_alive.discard(task)
-
-    task.signals.done.connect(_cleanup)
-    task.signals.error.connect(_cleanup)
     _keep_alive.add(task)
     QThreadPool.globalInstance().start(task)

@@ -85,7 +85,6 @@ class InstancePage(QWidget):
         buttons.addWidget(self._restart_button)
         buttons.addStretch(1)
         layout.addLayout(buttons)
-        self._update_buttons()
 
         self._console = ConsoleWidget(self)
         self._console.command_submitted.connect(self._send_command)
@@ -104,6 +103,8 @@ class InstancePage(QWidget):
         self._stream.snapshot_received.connect(self.handle_snapshot)
         self._stream.command_result.connect(self._on_command_result)
         self._stream.connection_changed.connect(self._on_stream_connection)
+
+        self._update_buttons()
 
         run_async(
             lambda: self._api_provider().get_snapshot(self._instance_id),
