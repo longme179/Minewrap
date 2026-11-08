@@ -53,6 +53,19 @@ is config-reserved but not implemented in v0.1.
 
 ## Quickstart (daemon + GUI)
 
+Fastest path, all in the GUI:
+
+```sh
+uv run mcpanel-gui
+# Click "Set up a local daemon…" (also the button on the empty pane):
+#   - pick your server directory and server jar
+#   - keep the defaults (bind 127.0.0.1:8080, probe 25565)
+#   - "Create & start" writes config.toml, starts the daemon (detached),
+#     reads the API token and connects the node automatically.
+```
+
+Prefer the terminal, or targeting a remote machine:
+
 ```sh
 uv sync --all-packages
 cp config.example.toml config.toml     # edit the [[instances]] section
@@ -60,7 +73,6 @@ uv run mcpanel-daemon --config config.toml
 # On first run the API token is printed once and stored in <data_dir>/token (0600).
 curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/v1/instances
 
-# In another terminal:
 uv run mcpanel-gui
 # "Add local node" defaults to http://127.0.0.1:8080; paste the token when asked.
 ```
@@ -107,7 +119,9 @@ also carries the daemon:
 
 The AppImage needs FUSE; where FUSE is unavailable, run it with
 `--appimage-extract-and-run` (also required for the `--daemon` form in
-containers/FUSE-less systems).
+containers/FUSE-less systems). The GUI's **Set up a local daemon…** wizard
+starts the daemon binary bundled in the AppImage, so no terminal step is
+required for a local setup.
 
 Caveats: PyInstaller does not cross-compile — build on the target OS. The
 same specs produce a `.exe` on Windows and a `.app` on macOS when run there
@@ -124,12 +138,13 @@ mcpanel does **not** attach to a Minecraft process you started yourself. The
 configuration, pipes its console, and can start/stop it. The GUI only talks to
 the daemon and never touches the server directly. So the workflow is:
 
-1. Write `config.toml` describing your server (this replaces your manual
-   `java -Xmx4G -jar server.jar nogui` command).
-2. Start the daemon (binary, AppImage `--daemon` form, or systemd unit).
-3. Start the GUI, add the node (`127.0.0.1:8080`), paste the token printed by
-   the daemon on first run.
-4. Click the instance in the tree: **Console** shows logs and accepts input;
+1. In the GUI click **Set up a local daemon…**: it writes `config.toml`,
+   starts the daemon (detached), reads the token and connects the node. This
+   replaces your manual `java -Xmx4G -jar server.jar nogui` command, because
+   the daemon starts the server from that config. (You can still do it by hand:
+   write the config and run `mcpanel-daemon --config config.toml`.)
+2. The daemon starts the server according to the instance config.
+3. Click the instance in the tree: **Console** shows logs and accepts input;
    **Settings** holds launch/probe/restart and the Discord webhook.
 
 A server started by hand (`java …` in a terminal) is invisible to mcpanel —

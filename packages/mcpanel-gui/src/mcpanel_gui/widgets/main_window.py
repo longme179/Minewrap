@@ -19,10 +19,12 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPushButton,
     QSplitter,
     QStackedWidget,
     QTreeWidget,
     QTreeWidgetItem,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -38,6 +40,7 @@ from mcpanel_gui.viewmodels import (
     NodeViewModel,
 )
 from mcpanel_gui.widgets.instance_page import InstancePage
+from mcpanel_gui.widgets.local_setup_dialog import LocalSetupDialog
 
 CONNECTION_TEXT = {
     CONNECTION_CONNECTED: "connected",
@@ -112,16 +115,20 @@ class MainWindow(QMainWindow):
 
         toolbar = self.addToolBar("Main")
         toolbar.setMovable(False)
+        setup = QAction("Set up local daemon…", self)
         add_local = QAction("Add local node", self)
         add_remote = QAction("Add remote node", self)
         edit = QAction("Edit node", self)
         reconnect = QAction("Reconnect", self)
         remove = QAction("Remove node", self)
+        setup.triggered.connect(self._open_local_setup)
         add_local.triggered.connect(self._add_local_node)
         add_remote.triggered.connect(self._add_remote_node)
         edit.triggered.connect(self._edit_selected)
         reconnect.triggered.connect(self._reconnect_selected)
         remove.triggered.connect(self._remove_selected)
+        toolbar.addAction(setup)
+        toolbar.addSeparator()
         toolbar.addAction(add_local)
         toolbar.addAction(add_remote)
         toolbar.addSeparator()
@@ -138,13 +145,23 @@ class MainWindow(QMainWindow):
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
 
         self._stack = QStackedWidget(self)
-        placeholder = QLabel(
+        placeholder = QWidget(self)
+        placeholder_layout = QVBoxLayout(placeholder)
+        placeholder_layout.addStretch(1)
+        placeholder_text = QLabel(
             "Add a node to get started.\n\n"
-            "A local node is just a daemon at 127.0.0.1 — remote nodes use "
-            "a URL and token (SSH tunnel recommended)."
+            "New to mcpanel? Let the GUI create a daemon config and start the "
+            "daemon for you — or add an existing node with its URL and token."
         )
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        placeholder.setStyleSheet("color: #6b7280; padding: 40px;")
+        placeholder_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        placeholder_text.setStyleSheet("color: #6b7280; padding: 20px;")
+        setup_button = QPushButton("Set up a local daemon…", placeholder)
+        setup_button.clicked.connect(self._open_local_setup)
+        placeholder_layout.addWidget(placeholder_text)
+        placeholder_layout.addWidget(
+            setup_button, alignment=Qt.AlignmentFlag.AlignHCenter
+        )
+        placeholder_layout.addStretch(1)
         self._stack.addWidget(placeholder)
 
         splitter = QSplitter(self)
@@ -330,6 +347,29 @@ class MainWindow(QMainWindow):
         return page
 
     # ---------------------------------------------------------------- actions
+
+    def _open_local_setup(self) -> None:
+        dialog = LocalSetupDialog(self)
+        dialog.setup_complete.connect(self._on_local_setup)
+        dialog.exec()
+
+    def _on_local_setup(self, result: Any) -> None:
+        url = str(result["url"])
+        token = str(result["token"])
+        name = str(result["name"])
+
+        existing = next((node for node in self._store.nodes if node.url == url), None)
+        if existing is None:
+            node = self._store.add(name, url)
+            self._add_node_item(node)
+        else:
+            node = existing
+        self._store.set_token(node.id, token)
+        if node.id in self._sessions:
+            self._restart_session(node.id)
+        elif self._auto_connect:
+            self._start_session(node)
+        self.statusBar().showMessage(f"Local daemon ready at {url}")
 
     def _add_local_node(self) -> None:
         node = self._store.add("Local", DEFAULT_LOCAL_URL)

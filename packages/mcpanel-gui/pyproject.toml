@@ -10,6 +10,7 @@ dependencies = [
     "websockets>=13",
     "keyring>=25",
     "platformdirs>=4",
+    "tomli-w>=1.0",
 ]
 
 [project.scripts]

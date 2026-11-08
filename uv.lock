@@ -417,6 +417,7 @@ dependencies = [
     { name = "mcpanel-common" },
     { name = "platformdirs" },
     { name = "pyside6-essentials" },
+    { name = "tomli-w" },
     { name = "websockets" },
 ]
 
@@ -427,6 +428,7 @@ requires-dist = [
     { name = "mcpanel-common", editable = "packages/mcpanel-common" },
     { name = "platformdirs", specifier = ">=4" },
     { name = "pyside6-essentials", specifier = ">=6.7" },
+    { name = "tomli-w", specifier = ">=1.0" },
     { name = "websockets", specifier = ">=13" },
 ]
 

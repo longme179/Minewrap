@@ -57,4 +57,14 @@ def test_multiple_nodes_are_listed_and_persisted(qapp: QApplication, tmp_path: P
     assert edited is not None
     assert edited.name == "Alpha 2"
     assert edited.url == "http://127.0.0.1:9090"
-    window.close()
+
+
+def test_local_setup_dialog_constructs(qapp: QApplication) -> None:
+    from mcpanel_gui.widgets.local_setup_dialog import LocalSetupDialog, slugify_instance_id
+
+    dialog = LocalSetupDialog()
+    assert dialog.windowTitle() == "Set up a local daemon"
+    assert dialog.instance_id.text() == "minecraft"
+    assert dialog.daemon_port.value() == 8080
+    assert slugify_instance_id("My Server!") == "my-server"
+    dialog.close()
