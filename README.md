@@ -94,12 +94,20 @@ Produces on Linux x86_64 (verified sizes):
 |---|---|
 | `dist/mcpanel-daemon` | single-file daemon binary (~21 MB) |
 | `dist/mcpanel-gui/` | portable GUI directory, Qt bundled (~187 MB) |
-| `dist/mcpanel-gui-x86_64.AppImage` | one-file desktop app (~73 MB) |
+| `dist/mcpanel-gui-x86_64.AppImage` | one-file desktop app incl. the daemon (~93 MB) |
 
 The daemon binary keeps the same contract — `mcpanel-daemon --config
 config.toml` — so point the systemd unit's `ExecStart` at it. The AppImage
-needs FUSE; where FUSE is unavailable, run it with
-`--appimage-extract-and-run`.
+also carries the daemon:
+
+```sh
+./mcpanel-gui-x86_64.AppImage                          # GUI
+./mcpanel-gui-x86_64.AppImage --daemon --config config.toml   # daemon
+```
+
+The AppImage needs FUSE; where FUSE is unavailable, run it with
+`--appimage-extract-and-run` (also required for the `--daemon` form in
+containers/FUSE-less systems).
 
 Caveats: PyInstaller does not cross-compile — build on the target OS. The
 same specs produce a `.exe` on Windows and a `.app` on macOS when run there
@@ -108,6 +116,55 @@ same specs produce a `.exe` on Windows and a `.app` on macOS when run there
 collects uvicorn's dynamically imported modules explicitly. Qt/GTK desktop
 integration still comes from the host (AppImage bundles Qt, not system
 theme engines).
+
+## How mcpanel works (important)
+
+mcpanel does **not** attach to a Minecraft process you started yourself. The
+**daemon** owns the server process: it spawns `java` from the instance
+configuration, pipes its console, and can start/stop it. The GUI only talks to
+the daemon and never touches the server directly. So the workflow is:
+
+1. Write `config.toml` describing your server (this replaces your manual
+   `java -Xmx4G -jar server.jar nogui` command).
+2. Start the daemon (binary, AppImage `--daemon` form, or systemd unit).
+3. Start the GUI, add the node (`127.0.0.1:8080`), paste the token printed by
+   the daemon on first run.
+4. Click the instance in the tree: **Console** shows logs and accepts input;
+   **Settings** holds launch/probe/restart and the Discord webhook.
+
+A server started by hand (`java …` in a terminal) is invisible to mcpanel —
+stop it first; two servers in the same world/port will conflict. Example for
+a Fabric/Cobblemon installation:
+
+```toml
+[daemon]
+port = 8080
+# token = "optional-pinned-token"   # otherwise generated into ./data/token (0600)
+
+[[instances]]
+id = "cobblemon"
+name = "Cobblemon"
+work_dir = "/home/you/Cobblemon-server"   # your server directory
+java_path = "java"
+jvm_args = ["-Xmx4G"]
+launch_args = ["-jar", "fabric-server-mc.1.21.1-loader.0.18.4-launcher.1.1.2.jar", "nogui"]
+autostart = true
+
+[instances.probe]
+host = "127.0.0.1"
+port = 25565
+query_enabled = false        # true needs enable-query=true in server.properties
+
+[instances.discord]
+enabled = true               # optional; also editable in the GUI Settings tab
+webhook_url = "https://discord.com/api/webhooks/…"
+interval_seconds = 600
+```
+
+If the GUI shows **“Node offline — retrying”**, the daemon is not reachable:
+start it, check `host`/`port`, and copy the token from
+`<config-dir>/data/token` (or the one printed at first start). **Unauthorized**
+means a wrong/missing token; **incompatible daemon** means version mismatch.
 
 ## Layout
 
