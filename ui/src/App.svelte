@@ -37,8 +37,14 @@
     if (instances[0] && !instances.some((i) => i.id === selectedInstance)) {
       selectedInstance = instances[0].id;
     }
-    snapshot = await ipc.getSnapshot(selectedNode, selectedInstance);
-    await store.appendBatch(await ipc.getLogs(selectedNode, selectedInstance, 200));
+    if (selectedInstance) {
+      snapshot = await ipc.getSnapshot(selectedNode, selectedInstance);
+      store.clear();
+      await store.appendBatch(await ipc.getLogs(selectedNode, selectedInstance, 200));
+    } else {
+      snapshot = null;
+      store.clear();
+    }
   }
 
   let actionError = $state("");
@@ -98,6 +104,7 @@
   function selectInstance(id: string) {
     selectedInstance = id;
     view = "tree";
+    store.clear();
     void loadInstances();
   }
 

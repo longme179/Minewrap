@@ -241,21 +241,22 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building Minewrap")
-        .run(move |_app_handle, event| {
-            if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+        .run(move |app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                api.prevent_exit();
                 let svc = svc_for_run.clone();
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build();
-                if let Ok(rt) = rt {
-                    rt.block_on(async move {
-                        svc.stop_all_local().await;
-                    });
-                }
-                if let Some(child) = _daemon_child.as_mut() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
+                let handle = app_handle.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build();
+                    if let Ok(rt) = rt {
+                        rt.block_on(async move {
+                            svc.stop_all_local().await;
+                        });
+                    }
+                    handle.exit(0);
+                });
             }
         });
 }
