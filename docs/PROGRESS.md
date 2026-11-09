@@ -27,7 +27,8 @@ Status key: [ ] todo · [~] doing · [x] done · [!] blocked
 ## 4. Java runtime detection & picker
 - [x] a. `minewrap-core::java` module, unit-tested with fake JDK fixtures: JAVA_HOME, PATH symlinks, /usr/lib/jvm/*, SDKMAN, ~/.jdks, asdf/mise/jenv, custom path; release-file parse + `-version` fallback (no shell, timeout); dedupe by canonical path; rescan off UI thread.
   Evidence: `crates/minewrap-core/src/java.rs` (4 tests), `cargo test -p minewrap-core java` 4 passed 2026-11-09 22:05.
-- [ ] b. UI Java-runtime selector + "System default" + "Custom path…" + persistence + disappeared-path error with one-click fix.
+- [x] b. UI Java-runtime selector + "System default" + "Custom path…" + persistence + disappeared-path error with one-click fix.
+  Evidence: `JavaPicker.svelte` (detectJava, rescan, custom path, missing-path fix), `pnpm run check` 0 errors 2026-11-09 22:20.
 - [x] c. Compatibility data file (Minecraft → min Java major), warning + "use <runtime>" quick action, non-blocking.
   Evidence: data table in `java.rs::min_java_for_minecraft`; UI guard lives in Settings (4d wiring below).
 - [ ] d. Memory UX: Min/Max RAM (MB/GB, max>=min, physical-RAM warn), None/Aikar/custom presets, advanced multi-line editor, duplicate/conflict -Xms/-Xmx warning.
