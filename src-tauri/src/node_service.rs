@@ -610,14 +610,62 @@ impl NodeService {
     }
 
     fn ctrl_tx(&self, instance_id: &str) -> Result<tokio::sync::mpsc::Sender<Control>, MinewrapError> {
+        self.ensure_runtime(instance_id)?;
         self.with_inner(|inner| match inner.instances.get(LOCAL_NODE_ID).and_then(|m| m.get(instance_id)) {
             Some(rt) => rt
                 .handle
                 .as_ref()
                 .map(|h| h.ctrl_tx.clone())
-                .ok_or_else(|| MinewrapError::gone("owner task not started")),
+                .ok_or_else(|| MinewrapError::gone("process manager is not running")),
             None => Err(MinewrapError::gone(format!("instance {instance_id} not found"))),
         })
+    }
+
+    fn ensure_runtime(&self, instance_id: &str) -> Result<(), MinewrapError> {
+        let needs_spawn = self.with_inner(|inner| {
+            inner
+                .instances
+                .get(LOCAL_NODE_ID)
+                .and_then(|m| m.get(instance_id))
+                .map(|rt| rt.handle.is_none())
+                .unwrap_or(false)
+        });
+        if !needs_spawn {
+            return Ok(());
+        }
+
+        let (config, defaults, unresponsive_after_failures, buffer) = self.with_inner(|inner| {
+            let rt = inner
+                .instances
+                .get(LOCAL_NODE_ID)
+                .and_then(|m| m.get(instance_id))
+                .ok_or_else(|| MinewrapError::gone(format!("instance {instance_id} not found")))?;
+            Ok::<_, MinewrapError>((
+                rt.config.clone(),
+                self.daemon.lock().unwrap_or_else(|e| e.into_inner()).daemon.defaults.clone(),
+                self.daemon.lock().unwrap_or_else(|e| e.into_inner()).daemon.unresponsive_after_failures,
+                rt.buffer.clone(),
+            ))
+        })?;
+
+        let mgr = ProcessManager::new(config, defaults, self.bus.clone(), buffer, None);
+        let handle = mgr.spawn();
+        self.with_inner(|inner| {
+            if let Some(rt) = inner
+                .instances
+                .get_mut(LOCAL_NODE_ID)
+                .and_then(|m| m.get_mut(instance_id))
+            {
+                rt.handle = Some(handle);
+                rt.state = InstanceState::new(
+                    rt.id.clone(),
+                    rt.name.clone(),
+                    unresponsive_after_failures,
+                );
+                rt.last_error = None;
+            }
+        });
+        Ok(())
     }
 
     // --- properties / mods (real core calls, confined) ---
@@ -728,6 +776,30 @@ impl NodeService {
                 }
             }
             rt.state.update_process(status);
+        });
+    }
+
+    /// Stop all local instances best-effort (used on GUI exit).
+    pub async fn stop_all_local(&self) {
+        let ids: Vec<String> = self.with_inner(|inner| {
+            inner
+                .instances
+                .get(LOCAL_NODE_ID)
+                .map(|m| m.keys().cloned().collect())
+                .unwrap_or_default()
+        });
+        for id in ids {
+            let _ = self.stop(LOCAL_NODE_ID, &id).await;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        self.with_inner(|inner| {
+            if let Some(map) = inner.instances.get_mut(LOCAL_NODE_ID) {
+                for rt in map.values_mut() {
+                    if let Some(handle) = rt.handle.take() {
+                        handle.owner.abort();
+                    }
+                }
+            }
         });
     }
 }

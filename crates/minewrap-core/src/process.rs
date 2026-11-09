@@ -325,9 +325,8 @@ impl ProcessManager {
                         .expect("process manager runtime");
                     let handle = rt.spawn(self.run());
                     let _ = tx_done.send(handle);
-                    rt.block_on(async {
-                        // Keep runtime alive; the task completes on shutdown/drop.
-                        std::future::pending::<()>().await;
+                    rt.block_on(async move {
+                        let _ = handle.await;
                     });
                 });
                 let owner = rx_done
@@ -407,7 +406,7 @@ impl ProcessManager {
         let mut reader: Option<tokio::task::JoinHandle<()>> = None;
         let mut rx = std::mem::replace(
             &mut self.ctrl_rx,
-            tokio::sync::mpsc::channel::<Control>(0).1,
+            tokio::sync::mpsc::channel::<Control>(1).1,
         );
 
         loop {

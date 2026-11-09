@@ -71,15 +71,15 @@ fn bundled_daemon_path() -> Option<PathBuf> {
 /// exec the bundled daemon — with explicit args, never `sh -c` —
 /// then register the node. The embedded `NodeService` core remains
 /// the local node regardless; the sidecar is the always-on path.
-fn ensure_daemon_running() {
+fn ensure_daemon_running() -> Option<std::process::Child> {
     let daemon = match bundled_daemon_path() {
         Some(p) => p,
-        None => return, // not shipped (dev)
+        None => return None, // not shipped (dev)
     };
     // Pre-flight health check — skip the spawn when already up.
     let addr = "127.0.0.1:8080";
     if std::net::TcpStream::connect(addr).is_ok() {
-        return;
+        return None;
     }
     let config = default_config_path();
     let config_str = config.to_string_lossy().to_string();
@@ -88,10 +88,16 @@ fn ensure_daemon_running() {
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn();
-    match out {
-        Ok(_) => eprintln!("minewrap: spawned bundled daemon {daemon:?} (config {config_str})"),
-        Err(e) => eprintln!("minewrap: failed to spawn bundled daemon {daemon:?}: {e}"),
-    }
+    let child = match out {
+        Ok(c) => {
+            eprintln!("minewrap: spawned bundled daemon {daemon:?} (config {config_str})");
+            Some(c)
+        }
+        Err(e) => {
+            eprintln!("minewrap: failed to spawn bundled daemon {daemon:?}: {e}");
+            None
+        }
+    };
     // Wait up to 10 s for `GET /health` (the daemon binds 127.0.0.1).
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -106,6 +112,7 @@ fn ensure_daemon_running() {
             }
         });
     }
+    child
 }
 
 async fn spawn_forwarder_future(
@@ -165,10 +172,10 @@ async fn spawn_forwarder_future(
 }
 
 fn main() {
-    // AppImage sidecar contract (v1 parity): ensure the bundled
-    // daemon is up before first-run; the embedded core is the local
-    // node regardless.
-    ensure_daemon_running();
+    // Design choice: GUI exit must stop all servers/nodes and leave
+    // no background daemon/process running. Do not auto-spawn the
+    // bundled daemon sidecar for the desktop app.
+    let mut _daemon_child: Option<std::process::Child> = None;
 
     let config_path = default_config_path();
     let config_str = config_path.to_string_lossy().to_string();
@@ -187,6 +194,7 @@ fn main() {
         }
     };
 
+    let svc_for_run = node_service.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(node_service.clone())
@@ -205,11 +213,6 @@ fn main() {
                     spawn_forwarder_future(handle, svc).await;
                 });
             });
-            // The guaranteed always-on path is the systemd unit
-            // (packaging/minewrapd.service); the stated tray is
-            // best-effort on Wayland and omitted here to keep the
-            // binary lean. Users can still hide with the window
-            // manager; the Discord post loop lives in minewrapd.
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -236,6 +239,23 @@ fn main() {
             commands::discord_test,
             commands::health,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Minewrap")
+        .build(tauri::generate_context!())
+        .expect("error while building Minewrap")
+        .run(move |_app_handle, event| {
+            if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+                let svc = svc_for_run.clone();
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build();
+                if let Ok(rt) = rt {
+                    rt.block_on(async move {
+                        svc.stop_all_local().await;
+                    });
+                }
+                if let Some(child) = _daemon_child.as_mut() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        });
 }
