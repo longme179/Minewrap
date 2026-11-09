@@ -413,7 +413,7 @@ mod tests {
                 uptime_seconds: Some(3600.0),
             },
             probe,
-            updated_at: DateTime::default(),
+            updated_at: chrono::DateTime::default(),
         }
     }
 

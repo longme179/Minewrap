@@ -38,15 +38,8 @@ pub struct NodeService {
 
 impl NodeService {
     pub fn new() -> Self {
-        let mut service = Self {
-            inner: std::sync::Mutex::new(NodeServiceInner::default()),
-        };
-
-        let mut guard = match service.inner.lock() {
-            Ok(g) => g,
-            Err(p) => p.into_inner(),
-        };
-        guard.nodes.insert(
+        let mut inner = NodeServiceInner::default();
+        inner.nodes.insert(
             LOCAL_NODE_ID.to_string(),
             NodeSummary {
                 id: LOCAL_NODE_ID.to_string(),
@@ -56,7 +49,9 @@ impl NodeService {
                 state: NodeState::Connected,
             },
         );
-        service
+        Self {
+            inner: std::sync::Mutex::new(inner),
+        }
     }
 
     pub fn is_local(&self, node_id: &str) -> bool {
