@@ -99,11 +99,13 @@
     }
   }
 
+  let effectKey = $state("");
   $effect(() => {
-    void nodeId;
-    void instanceId;
-    loaded = false;
-    if (view === null) {
+    const key = `${nodeId}:${instanceId}`;
+    if (key !== effectKey) {
+      effectKey = key;
+      loaded = false;
+      view = null;
       void load();
     }
   });

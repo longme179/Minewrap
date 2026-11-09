@@ -19,6 +19,7 @@
       players_max?: number | null;
       version?: string | null;
       probe_ok: boolean;
+      last_error?: string | null;
     } | null;
     nodeState?: string;
     nodeId?: string;
@@ -82,6 +83,10 @@
       </button>
     </span>
   </div>
+
+  {#if snapshot?.last_error}
+    <p role="alert" class="snapshot-error">{snapshot.last_error}</p>
+  {/if}
 
   <nav aria-label="Instance tabs" class="tabs">
     <button type="button" role="tab" aria-selected={tab === "console"} class="tab" class:tab-active={tab === "console"} onclick={() => select("console")}>Console</button>
@@ -165,4 +170,13 @@
   .tab:disabled { opacity: 0.5; cursor: not-allowed; }
   .tab-panels { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .tab-panels > :global(*) { flex: 1; min-height: 0; }
+  .snapshot-error {
+    margin: 0 var(--space-lg) var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--color-destructive);
+    border-radius: var(--radius-sm);
+    color: var(--color-destructive);
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
 </style>

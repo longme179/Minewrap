@@ -1,5 +1,4 @@
-<!-- Mods manager: list / search-filter / toggle `.jar <-> .jar.disabled`.
-  Disabling requires confirmation; enabling is immediate. -->
+<!-- Mods manager: list / search-filter / toggle `.jar <-> .jar.disabled`. -->
 <script lang="ts">
   import { createAdapter } from "../ipc/factory.js";
   import { formatError } from "../lib/formatError.js";
@@ -16,13 +15,12 @@
 
   let mods = $state<ModDto[]>([]);
   let filter = $state("");
-  let confirming = $state<string | null>(null);
+  let busy = $state<string | null>(null);
   let status = $state("");
 
   async function load() {
     try {
       status = "";
-      confirming = null;
       mods = await ipc.listMods(nodeId, instanceId);
     } catch (e) {
       status = formatError(e);
@@ -35,17 +33,16 @@
   );
 
   async function toggle(m: ModDto) {
-    if (m.enabled && confirming !== m.name) {
-      confirming = m.name;
-      return;
-    }
-    confirming = null;
+    if (busy) return;
+    busy = m.name;
     try {
       await ipc.toggleMod(nodeId, instanceId, m.name);
       status = `${m.name} ${m.enabled ? "disabled" : "enabled"}.`;
       await load();
     } catch (e) {
       status = formatError(e);
+    } finally {
+      busy = null;
     }
   }
 
@@ -61,10 +58,13 @@
     return `${v.toFixed(1)} ${units[i]}`;
   }
 
+  let effectKey = $state("");
   $effect(() => {
-    void nodeId;
-    void instanceId;
-    void load();
+    const key = `${nodeId}:${instanceId}`;
+    if (key !== effectKey) {
+      effectKey = key;
+      void load();
+    }
   });
 </script>
 
@@ -99,8 +99,8 @@
             <td>{formatSize(m.size)}</td>
             <td>{m.enabled ? "enabled" : "disabled"}</td>
             <td>
-              <button type="button" class="btn-secondary" onclick={() => toggle(m)}>
-                {confirming === m.name ? "Confirm disable" : m.enabled ? "Disable" : "Enable"}
+              <button type="button" class="btn-secondary" onclick={() => toggle(m)} disabled={busy === m.name}>
+                {busy === m.name ? "Working…" : m.enabled ? "Disable" : "Enable"}
               </button>
             </td>
           </tr>

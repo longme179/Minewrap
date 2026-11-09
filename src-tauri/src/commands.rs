@@ -72,7 +72,7 @@ pub async fn instance_start(
     node_id: String,
     instance_id: String,
 ) -> Result<Action, MinewrapError> {
-    state.start(&node_id, &instance_id)?;
+    state.start(&node_id, &instance_id).await?;
     Ok(Action { ok: true, detail: Some("start requested".into()) })
 }
 
@@ -82,7 +82,7 @@ pub async fn instance_stop(
     node_id: String,
     instance_id: String,
 ) -> Result<Action, MinewrapError> {
-    state.stop(&node_id, &instance_id)?;
+    state.stop(&node_id, &instance_id).await?;
     Ok(Action { ok: true, detail: Some("stop requested".into()) })
 }
 
@@ -92,7 +92,7 @@ pub async fn instance_restart(
     node_id: String,
     instance_id: String,
 ) -> Result<Action, MinewrapError> {
-    state.restart(&node_id, &instance_id)?;
+    state.restart(&node_id, &instance_id).await?;
     Ok(Action { ok: true, detail: Some("restart requested".into()) })
 }
 
@@ -259,7 +259,7 @@ pub async fn remove_instance(
     _node_id: String,
     instance_id: String,
 ) -> Result<Action, MinewrapError> {
-    state.remove_instance(&instance_id)?;
+    state.remove_instance(&instance_id).await?;
     Ok(Action { ok: true, detail: Some("instance removed".into()) })
 }
 

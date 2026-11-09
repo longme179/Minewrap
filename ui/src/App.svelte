@@ -16,7 +16,7 @@
   let snapshot = $state<null | {
     id: string; name: string; combined_state: string;
     players_online?: number | null; players_max?: number | null;
-    version?: string | null; probe_ok: boolean;
+    version?: string | null; probe_ok: boolean; last_error?: string | null;
   }>(null);
   let nodeState = $state("connected");
   let selectedNode = $state("local");

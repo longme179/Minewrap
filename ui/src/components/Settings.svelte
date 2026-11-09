@@ -57,31 +57,37 @@
 
   const dirty = $derived(loadedFor !== "" && snapshot() !== savedSnapshot);
 
+  function applyView(v: ConfigView) {
+    name = v.name;
+    workDir = v.work_dir;
+    javaPath = v.java_path || "java";
+    minRamMb = parseRam(v.jvm_args, "-Xms", 2048);
+    maxRamMb = parseRam(v.jvm_args, "-Xmx", 4096);
+    preset = jvmArgsText_looksAikar(v.jvm_args) ? "aikar" : (v.jvm_args.join(" ").trim() ? "custom" : "none");
+    jvmArgsText = v.jvm_args.join("\n");
+    launchArgsText = v.launch_args.join(" ");
+    autostart = v.autostart;
+    probe = { ...v.probe };
+    restart = { ...v.restart };
+  }
+
   async function load(force = false) {
     const key = `${nodeId}:${instanceId}`;
-    if (!force && key === loadedFor && !dirty) return;
-    if (!force && dirty && loadedFor !== "" && key !== loadedFor) {
+    if (key === loadedFor && !force) return;
+    if (dirty && loadedFor !== "" && key !== loadedFor) {
       if (typeof window !== "undefined" && !window.confirm("Discard unsaved settings changes?")) {
+        effectKey = loadedFor;
         return;
       }
     }
-    loading = true;
+    const first = loadedFor === "";
+    if (first) loading = true;
     error = "";
     status = "";
     dirError = "";
     try {
       view = await ipc.getConfig(nodeId, instanceId);
-      name = view.name;
-      workDir = view.work_dir;
-      javaPath = view.java_path || "java";
-      minRamMb = parseRam(view.jvm_args, "-Xms", 2048);
-      maxRamMb = parseRam(view.jvm_args, "-Xmx", 4096);
-      preset = jvmArgsText_looksAikar(view.jvm_args) ? "aikar" : (view.jvm_args.join(" ").trim() ? "custom" : "none");
-      jvmArgsText = view.jvm_args.join("\n");
-      launchArgsText = view.launch_args.join(" ");
-      autostart = view.autostart;
-      probe = { ...view.probe };
-      restart = { ...view.restart };
+      applyView(view);
       loadedFor = key;
       savedSnapshot = snapshot();
       await validateWorkDir();
@@ -225,10 +231,13 @@
     preset = "aikar";
   }
 
+  let effectKey = $state("");
   $effect(() => {
-    void nodeId;
-    void instanceId;
-    void load();
+    const key = `${nodeId}:${instanceId}`;
+    if (key !== effectKey) {
+      effectKey = key;
+      void load(true);
+    }
   });
 </script>
 

@@ -61,10 +61,13 @@
     guardOpen = false;
   }
 
+  let effectKey = $state("");
   $effect(() => {
-    void nodeId;
-    void instanceId;
-    void load();
+    const key = `${nodeId}:${instanceId}`;
+    if (key !== effectKey) {
+      effectKey = key;
+      void load();
+    }
   });
 </script>
 

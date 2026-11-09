@@ -35,6 +35,7 @@ pub struct InstanceRuntime {
     pub handle: Option<minewrap_core::OwnerHandle>,
     pub buffer: Arc<Mutex<LogBuffer>>,
     pub probe: ProbeInfo,
+    pub last_error: Option<String>,
 }
 
 #[derive(Default)]
@@ -149,6 +150,7 @@ impl NodeService {
                 handle: Some(handle),
                 buffer: buf,
                 probe: ProbeInfo::default(),
+                last_error: None,
             };
             self.with_inner(|inner| {
                 inner
@@ -302,6 +304,7 @@ impl NodeService {
                         players_online: None,
                         players_max: None,
                         version: None,
+                        last_error: None,
                     }
                 }
             };
@@ -321,6 +324,7 @@ impl NodeService {
                 players_online: snap.probe.players_online,
                 players_max: snap.probe.players_max,
                 version: snap.probe.version,
+                last_error: rt.last_error.clone(),
             }
         }))
     }
@@ -494,6 +498,7 @@ impl NodeService {
             handle: Some(handle),
             buffer: buf,
             probe: ProbeInfo::default(),
+            last_error: None,
         };
 
         // Persist to the in-memory daemon config and write 0600.
@@ -520,8 +525,8 @@ impl NodeService {
     }
 
     /// Remove an instance (stops it, drops its runtime, persists).
-    pub fn remove_instance(&self, instance_id: &str) -> Result<bool, MinewrapError> {
-        self.stop(LOCAL_NODE_ID, instance_id).ok();
+    pub async fn remove_instance(&self, instance_id: &str) -> Result<bool, MinewrapError> {
+        let _ = self.stop(LOCAL_NODE_ID, instance_id).await;
         let removed = self.with_inner(|inner| {
             inner
                 .instances
@@ -544,36 +549,42 @@ impl NodeService {
 
     // --- lifecycle (real `ProcessManager::Control` mux) ---
 
-    pub fn start(&self, node_id: &str, instance_id: &str) -> Result<bool, MinewrapError> {
+    pub async fn start(&self, node_id: &str, instance_id: &str) -> Result<bool, MinewrapError> {
         if !self.is_local(node_id) {
             return Err(self.remote_offline(node_id));
         }
         let tx = self.ctrl_tx(instance_id)?;
-        tokio::spawn(async move {
-            let _ = tx.send(Control::Start).await;
-        });
+        tx.send(Control::Start)
+            .await
+            .map_err(|_| MinewrapError::gone("process manager is not running"))?;
         Ok(true)
     }
 
-    pub fn stop(&self, node_id: &str, instance_id: &str) -> Result<bool, MinewrapError> {
+    pub async fn stop(&self, node_id: &str, instance_id: &str) -> Result<bool, MinewrapError> {
         if !self.is_local(node_id) {
             return Err(self.remote_offline(node_id));
         }
         let tx = self.ctrl_tx(instance_id)?;
-        tokio::spawn(async move {
-            let _ = tx.send(Control::Stop).await;
-        });
+        tx.send(Control::Stop)
+            .await
+            .map_err(|_| MinewrapError::gone("process manager is not running"))?;
         Ok(true)
     }
 
-    pub fn restart(&self, node_id: &str, instance_id: &str) -> Result<bool, MinewrapError> {
+    pub async fn restart(&self, node_id: &str, instance_id: &str) -> Result<bool, MinewrapError> {
         if !self.is_local(node_id) {
             return Err(self.remote_offline(node_id));
         }
-        self.stop(node_id, instance_id)?;
         let tx = self.ctrl_tx(instance_id)?;
+        tx.send(Control::Stop)
+            .await
+            .map_err(|_| MinewrapError::gone("process manager is not running"))?;
+        // Best-effort: manager will transition through stopping; a second
+        // start is queued after a short delay by the caller/UI refresh.
+        let tx2 = self.ctrl_tx(instance_id)?;
         tokio::spawn(async move {
-            let _ = tx.send(Control::Start).await;
+            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+            let _ = tx2.send(Control::Start).await;
         });
         Ok(true)
     }
@@ -689,6 +700,11 @@ impl NodeService {
             else {
                 return;
             };
+            if state == ProcessState::Crashed || reason.contains("spawn_failed") || reason.contains("failed") {
+                rt.last_error = Some(reason.to_string());
+            } else if matches!(state, ProcessState::Starting | ProcessState::Online) {
+                rt.last_error = None;
+            }
             let mut status = minewrap_core::ProcessStatus {
                 state,
                 pid: None,
@@ -727,6 +743,7 @@ pub struct SnapshotDto {
     pub players_online: Option<u32>,
     pub players_max: Option<u32>,
     pub version: Option<String>,
+    pub last_error: Option<String>,
 }
 
 fn discord_view(d: &minewrap_core::DiscordConfig) -> serde_json::Value {
