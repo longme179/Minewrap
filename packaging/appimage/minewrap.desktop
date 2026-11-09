@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Minewrap
+Comment=Manage Minecraft Java Edition servers
+Exec=minewrap
+Icon=minewrap
+Categories=Game;Utility;
+Terminal=false
+StartupWMClass=Minewrap

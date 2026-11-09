@@ -30,3 +30,4 @@ dist/
 __pycache__/
 .venv/
 *.egg-info/
+src-tauri/binaries/

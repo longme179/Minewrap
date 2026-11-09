@@ -1,0 +1,13 @@
+#!/bin/sh
+# AppImage entry point (v1 parity).
+#
+#   Minewrap-x86_64.AppImage                        -> GUI
+#   Minewrap-x86_64.AppImage --daemon --config ...  -> bundled daemon
+#   Minewrap-x86_64.AppImage --daemon --help        -> daemon usage
+HERE="$(dirname "$(readlink -f "$0")")"
+
+if [ "${1:-}" = "--daemon" ]; then
+  shift
+  exec "$HERE/usr/bin/minewrapd" "$@"
+fi
+exec "$HERE/usr/bin/minewrap-tauri" "$@"

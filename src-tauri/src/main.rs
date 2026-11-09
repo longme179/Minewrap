@@ -17,6 +17,9 @@ fn default_config_path() -> PathBuf {
     if candidate.exists() {
         return candidate.to_path_buf();
     }
+    // Portable layout: config next to the AppImage / binary (the
+    // AppImage is a single fusesquashfs mount; the writable data dir
+    // lives beside the .AppImage file on the host).
     if let Some(exe) = std::env::current_exe().ok() {
         if let Some(dir) = exe.parent() {
             let candidate = dir.join("minewrap.toml");
@@ -25,7 +28,77 @@ fn default_config_path() -> PathBuf {
             }
         }
     }
+    // First run (no config yet): write an example beside the binary
+    // so the user edits it, then the embedded core runs in-memory
+    // until `minewrap.toml` exists.
+    if let Some(exe) = std::env::current_exe().ok() {
+        if let Some(dir) = exe.parent() {
+            let example = dir.join("minewrap.toml");
+            let defaults = minewrap_core::DaemonConfig::default();
+            let _ = defaults.save_to(&example.to_string_lossy());
+            return example;
+        }
+    }
     PathBuf::from("minewrap.toml")
+}
+
+/// Locate the bundled `minewrapd` next to the Tauri binary (AppImage
+/// `usr/bin/` or a portable `binaries/` sibling). Returns `None` when
+/// the daemon is not shipped (dev builds).
+fn bundled_daemon_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    for cand in [
+        dir.join("minewrapd"),
+        dir.join("binaries").join("minewrapd"),
+        dir.join("binaries").join("minewrapd-x86_64-unknown-linux-gnu"),
+    ] {
+        if cand.exists() {
+            return Some(cand);
+        }
+    }
+    None
+}
+
+/// Sidecar spawn (AppImage contract): if `GET /health` is refused,
+/// exec the bundled daemon — with explicit args, never `sh -c` —
+/// then register the node. The embedded `NodeService` core remains
+/// the local node regardless; the sidecar is the always-on path.
+fn ensure_daemon_running() {
+    let daemon = match bundled_daemon_path() {
+        Some(p) => p,
+        None => return, // not shipped (dev)
+    };
+    // Pre-flight health check — skip the spawn when already up.
+    let addr = "127.0.0.1:8080";
+    if std::net::TcpStream::connect(addr).is_ok() {
+        return;
+    }
+    let config = default_config_path();
+    let config_str = config.to_string_lossy().to_string();
+    let out = std::process::Command::new(&daemon)
+        .env("MINEWRAP_CONFIG", &config_str)
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn();
+    match out {
+        Ok(_) => eprintln!("minewrap: spawned bundled daemon {daemon:?} (config {config_str})"),
+        Err(e) => eprintln!("minewrap: failed to spawn bundled daemon {daemon:?}: {e}"),
+    }
+    // Wait up to 10 s for `GET /health` (the daemon binds 127.0.0.1).
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build();
+    if let Ok(rt) = rt {
+        rt.block_on(async {
+            for _ in 0..20 {
+                if std::net::TcpStream::connect(addr).is_ok() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+        });
+    }
 }
 
 fn spawn_forwarder(
@@ -86,6 +159,11 @@ fn spawn_forwarder(
 }
 
 fn main() {
+    // AppImage sidecar contract (v1 parity): ensure the bundled
+    // daemon is up before first-run; the embedded core is the local
+    // node regardless.
+    ensure_daemon_running();
+
     let config_path = default_config_path();
     let config_str = config_path.to_string_lossy().to_string();
     let node_service = match NodeService::load(&config_str) {
