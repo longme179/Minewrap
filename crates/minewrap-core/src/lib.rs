@@ -1,18 +1,26 @@
 //! minewrap-core — Tauri-free server core shared by the desktop app and `minewrapd`.
 //!
-//! Phase 1 delivers: config, process lifecycle/state machine, log pipeline
-//! (batching + ring buffer + rotation), and a fake server fixture. The
-//! poller, Discord, properties editor and mods manager land in Phase 2.
+//! Implements the full v1 parity core: config, process/state machine, log
+//! pipeline (batching, ring buffer, rotation), SLP status probe, Discord
+//! notifier (including redaction/retry), server.properties, mods and path
+//! confinement. Effectively Tauri-free: sending the same HTTP/WebSocket wire
+//! format as `minewrapd`.
 
 pub mod config;
+pub mod discard;
+pub mod discord;
 pub mod events;
 pub mod logs;
+pub mod mods;
+pub mod poller;
 pub mod process;
+pub mod properties;
 
 pub use config::{
     DaemonConfig, DaemonSettings, InstanceConfig, InstanceDefaults, ProbeConfig, RestartConfig,
 };
 pub use logs::{LogBuffer, LogLine, LogLineBatch};
+pub use poller::{InstanceSnapshot, InstanceState, InstanceSummary, ProbeInfo};
 pub use process::{ProcessError, ProcessManager, ProcessState, ProcessStatus};
 
 /// API contract version reported by `minewrapd` (v1.0.0 Python API was "0.1").

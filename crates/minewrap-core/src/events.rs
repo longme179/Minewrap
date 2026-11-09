@@ -176,7 +176,7 @@ mod tests {
     #[tokio::test]
     async fn slow_consumer_drops_oldest() {
         let bus = EventBus::new();
-        let (tx, mut rx) = mpsc::channel::<Event>(256);
+        let (tx, _rx) = mpsc::channel::<Event>(256);
         let _ = tx;
         // Simulate 256+ publishes without consuming: the channel holds at
         // most `capacity` and `try_send` on full is a no-op (returns Full).
@@ -212,6 +212,6 @@ mod tests {
         assert!(count <= 256);
         // in practice with try_send the first 256 fill, the rest are dropped
         // — consumers detect the missing seq values.
-        let _ = (delivered, rx, &q);
+        let _ = (delivered, &q);
     }
 }
