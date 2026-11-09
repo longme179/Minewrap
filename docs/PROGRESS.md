@@ -41,7 +41,8 @@ Status key: [ ] todo · [~] doing · [x] done · [!] blocked
 - [ ] Backend: edit-in-place + 404 recreate, 429 retry_after, 5xx backoff, debounced posts, embed limits. Mock HTTP server tests.
 
 ## 6. Instance lifecycle polish
-- [ ] Add-instance wizard: folder -> detect -> Java -> RAM -> review; same UI for edit.
+- [x] Add-instance wizard: folder -> detect -> Java -> RAM -> review; same UI for edit.
+  Evidence: `ui/src/components/Wizard.svelte` (4 steps, scan_launch detect + Java picker + RAM/review), `pnpm run check` 0 errors 2026-11-09 22:25.
 - [ ] EULA prompt on missing/false eula.txt; explicit accept only.
 - [ ] Close-while-running ask (stop gracefully / keep in tray / cancel); window restore; single-instance.
 - [ ] Config versioning + migrations; invalid config -> readable error + backup, never crash.

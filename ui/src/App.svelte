@@ -3,7 +3,7 @@
   browser) — see `src/main.ts`. -->
 <script lang="ts">
   import Dashboard from "./components/Dashboard.svelte";
-  import AddInstance from "./components/AddInstance.svelte";
+  import Wizard from "./components/Wizard.svelte";
   import { createAdapter } from "./ipc/factory.js";
   import { createConsoleStore } from "./stores/console.js";
 
@@ -124,12 +124,12 @@
           onRestart={restart}
         />
       {:else if view === "add"}
-        <AddInstance onChanged={() => void loadInstances()} />
+        <Wizard onChanged={() => void loadInstances()} />
       {:else}
         <p class="empty">Select an instance, or add one.</p>
       {/if}
       {#if view === "add"}
-        <AddInstance onChanged={() => { view = "tree"; void loadInstances(); }} />
+        <Wizard onChanged={() => { view = "tree"; void loadInstances(); }} />
       {/if}
     </section>
   </div>
