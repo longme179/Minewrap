@@ -1,9 +1,43 @@
-<!-- Minewrap v2 shell: 900x600 minimum, dark-only, token-driven. -->
+<!-- Minewrap v2 shell: 900x600 minimum, dark-only, token-driven.
+  Wired to the IPC adapter (Tauri in the webview, mock in a plain
+  browser) — see `src/main.ts`. -->
 <script lang="ts">
-  import Console from "./components/Console.svelte";
+  import Dashboard from "./components/Dashboard.svelte";
+  import { MockIpcAdapter } from "./ipc/mock.js";
+  import type { IpcAdapter } from "./ipc/mod.js";
   import { createConsoleStore } from "./stores/console.js";
 
+  const ipc: IpcAdapter = new MockIpcAdapter();
   const store = createConsoleStore();
+
+  let nodes = $state<{ id: string; name: string; state: string }[]>([]);
+  let instances = $state<{ id: string; name: string; combined_state: string }[]>([]);
+  let snapshot = $state<null | {
+    id: string; name: string; combined_state: string;
+    players_online?: number | null; players_max?: number | null;
+    version?: string | null; probe_ok: boolean;
+  }>(null);
+  let nodeState = $state("connected");
+  let selectedInstance = $state("survival");
+
+  async function load() {
+    nodes = await ipc.listNodes();
+    instances = await ipc.listInstances(nodes[0]?.id ?? "local");
+    if (instances[0]) selectedInstance = instances[0].id;
+    snapshot = await ipc.getSnapshot(nodes[0]?.id ?? "local", selectedInstance);
+    nodeState = nodes[0]?.state ?? "offline";
+    await store.appendBatch(await ipc.getLogs(nodes[0]?.id ?? "local", selectedInstance, 200));
+  }
+
+  async function start() { await ipc.instanceStart(nodes[0]?.id ?? "local", selectedInstance); await load(); }
+  async function stop() { await ipc.instanceStop(nodes[0]?.id ?? "local", selectedInstance); await load(); }
+  async function restart() { await ipc.instanceRestart(nodes[0]?.id ?? "local", selectedInstance); await load(); }
+
+  $effect(() => {
+    store.attach(ipc);
+    void load();
+    return () => store.detach();
+  });
 </script>
 
 <main class="app">
@@ -15,22 +49,27 @@
     <nav aria-label="Instances" class="tree">
       <p class="tree-title">Nodes</p>
       <ul>
-        <li>
-          <span class="dot dot-online" aria-hidden="true"></span>
-          This machine — online
-        </li>
+        {#each nodes as n (n.id)}
+          <li>
+            <span class="dot dot-online" aria-hidden="true"></span>
+            {n.name} — {n.state}
+          </li>
+        {/each}
       </ul>
       <p class="tree-title">Instances</p>
       <ul>
-        <li><strong>Survival</strong> <span class="badge">online</span></li>
+        {#each instances as i (i.id)}
+          <li>
+            <button type="button" class="tree-item" onclick={() => (selectedInstance = i.id)}>
+              <strong>{i.name}</strong>
+              <span class="badge">{i.combined_state}</span>
+            </button>
+          </li>
+        {/each}
       </ul>
     </nav>
     <section class="page" aria-label="Instance view">
-      <div class="status">
-        <span class="dot dot-online" aria-hidden="true"></span>
-        <span>Online · 1/20 players · 1.21.4 · 3 ms</span>
-      </div>
-      <Console {store} />
+      <Dashboard {snapshot} {nodeState} onStart={start} onStop={stop} onRestart={restart} />
     </section>
   </div>
 </main>
@@ -71,14 +110,16 @@
   }
   .tree ul { list-style: none; padding: 0; margin: 0; }
   .tree li { padding: var(--space-sm) 0; }
-  .page { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  .status {
-    padding: var(--space-md) var(--space-lg);
-    display: flex;
-    gap: var(--space-md);
-    align-items: center;
-    border-bottom: 1px solid var(--color-border);
+  .tree-item {
+    background: transparent;
+    border: none;
+    color: var(--color-foreground);
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
   }
+  .page { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .dot-online { background: var(--color-state-online); }
   .badge {
@@ -86,5 +127,6 @@
     border-radius: var(--radius-sm);
     padding: 0 var(--space-sm);
     font-size: 11px;
+    margin-left: var(--space-sm);
   }
 </style>

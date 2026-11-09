@@ -87,16 +87,16 @@ export class MockIpcAdapter implements IpcAdapter {
   }
 
   async instanceStart(_n: NodeId, _i: string): Promise<Action> {
-    return { ok: true };
+    return { ok: true, detail: "start requested" };
   }
   async instanceStop(_n: NodeId, _i: string): Promise<Action> {
-    return { ok: true };
+    return { ok: true, detail: "stop requested" };
   }
   async instanceRestart(_n: NodeId, _i: string): Promise<Action> {
-    return { ok: true };
+    return { ok: true, detail: "restart requested" };
   }
   async sendCommand(_n: NodeId, _i: string, _c: string): Promise<Action> {
-    return { ok: true };
+    return { ok: true, detail: "command sent" };
   }
 
   async getLogs(_n: NodeId, _i: string, limit = 200): Promise<LogLine[]> {
@@ -113,7 +113,7 @@ export class MockIpcAdapter implements IpcAdapter {
   }
 
   async writeProperties(): Promise<Action> {
-    return { ok: true };
+    return { ok: true, detail: "properties written" };
   }
 
   async listMods(): Promise<ModDto[]> {
@@ -124,7 +124,7 @@ export class MockIpcAdapter implements IpcAdapter {
   }
 
   async toggleMod(): Promise<Action> {
-    return { ok: true };
+    return { ok: true, detail: "toggled" };
   }
 
   async discordTest(): Promise<DiscordTestResponse> {

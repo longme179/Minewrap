@@ -17,11 +17,16 @@ pub mod process;
 pub mod properties;
 
 pub use config::{
-    DaemonConfig, DaemonSettings, InstanceConfig, InstanceDefaults, ProbeConfig, RestartConfig,
+    DaemonConfig, DaemonSettings, DiscordConfig, InstanceConfig, InstanceDefaults, ProbeConfig,
+    RestartConfig,
 };
-pub use logs::{LogBuffer, LogLine, LogLineBatch};
-pub use poller::{InstanceSnapshot, InstanceState, InstanceSummary, ProbeInfo};
-pub use process::{ProcessError, ProcessManager, ProcessState, ProcessStatus};
+pub use discord::{Notifier, build_state_change_embed, build_status_embed};
+pub use events::{Event, EventBus, EventBus as EventBusT, LogLineEvent, RestartLoopEvent, StateChange};
+pub use logs::{LogBuffer, LogLine, LogLineBatch, RotatingFile};
+pub use poller::{InstanceSnapshot, InstanceState, InstanceSummary, ProbeInfo, Poller, probe_once};
+pub use process::{Control, OwnerHandle, ProcessError, ProcessManager, ProcessState, ProcessStatus, spawn_reader, spawn_server};
+pub use mods::{ModEntry, format_size, list_mods, toggle_mod};
+pub use properties::{PropertiesDocument, PropertyEntry, confine_path, properties_path, validate_property};
 
 /// API contract version reported by `minewrapd` (v1.0.0 Python API was "0.1").
 pub const API_VERSION: &str = "1.0";
