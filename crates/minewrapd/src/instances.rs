@@ -92,7 +92,7 @@ impl InstanceManager {
             .collect()
     }
 
-    pub fn runtime(&self, id: &str) -> Option<std::sync::MutexGuard<'_, HashMap<String, ManagedInstance>>> {
+    pub fn runtime(&self, _id: &str) -> Option<std::sync::MutexGuard<'_, HashMap<String, ManagedInstance>>> {
         self.instances.lock().ok()
     }
 

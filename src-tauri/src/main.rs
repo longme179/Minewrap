@@ -106,6 +106,11 @@ fn main() {
             let svc = node_service.clone();
             let handle = app.handle().clone();
             spawn_forwarder(handle, svc);
+            // The guaranteed always-on path is the systemd unit
+            // (packaging/minewrapd.service); the stated tray is
+            // best-effort on Wayland and omitted here to keep the
+            // binary lean. Users can still hide with the window
+            // manager; the Discord post loop lives in minewrapd.
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

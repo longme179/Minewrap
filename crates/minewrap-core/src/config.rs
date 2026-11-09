@@ -449,6 +449,38 @@ fn default_launch_args() -> Vec<String> {
     vec!["-jar".to_string(), "server.jar".to_string(), "nogui".to_string()]
 }
 
+/// Aikar's Flags (https://aikar.co/flags.html) — the recommended
+/// JVM preset for modern Minecraft servers. Exposed so the Settings
+/// UI offers it as a one-click preset; the user can still edit
+/// `jvm_args` freely afterwards.
+pub fn aikars_flags() -> Vec<String> {
+    vec![
+        "-Xms2G".into(),
+        "-Xmx4G".into(),
+        "-XX:+UseG1GC".into(),
+        "-XX:+ParallelRefProcEnabled".into(),
+        "-XX:MaxGCPauseMillis=200".into(),
+        "-XX:+UnlockExperimentalVMOptions".into(),
+        "-XX:+DisableExplicitGC".into(),
+        "-XX:+AlwaysPreTouch".into(),
+        "-XX:G1NewSizeRatio=30".into(),
+        "-XX:G1MaxNewSizeRatio=40".into(),
+        "-XX:G1HeapRegionSize=8M".into(),
+        "-XX:G1ReservePercent=20".into(),
+        "-XX:G1HeapWastePercent=5".into(),
+        "-XX:G1MixedGCCountTarget=4".into(),
+        "-XX:InitiatingHeapOccupancyPercent=15".into(),
+        "-XX:G1MixedGCLiveThresholdPercent=90".into(),
+        "-XX:G1RSetUpdatingPauseTimePercent=5".into(),
+        "-XX:SurvivorRatio=32".into(),
+        "-XX:+PerfDisableSharedMem".into(),
+        "-XX:MaxTenuringThreshold=1".into(),
+        "-Dusing.aikars.flags=https://mcflags.env".into(),
+        "-Daikars.flags.file=aikars.flags".into(),
+        "-Dlog4j2.formatMsgNoLookups=true".into(),
+    ]
+}
+
 impl InstanceConfig {
     /// Apply the v1 default-name rule (`name` falls back to `id`).
     pub fn display_name(&self) -> &str {

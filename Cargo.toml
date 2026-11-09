@@ -19,6 +19,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 
 [profile.dev]
 debug = true
+# Warnings are errors for the workspace (Phase 6 linter bar).
+[workspace.lints.rust]
+warnings = "deny"
 
 [profile.release]
 lto = true

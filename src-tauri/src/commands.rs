@@ -123,7 +123,7 @@ pub async fn get_logs(
 #[tauri::command]
 pub async fn read_properties(
     state: State<'_, Arc<NodeService>>,
-    node_id: String,
+    _node_id: String,
     instance_id: String,
 ) -> Result<PropertiesDoc, MinewrapError> {
     let (text, errors) = state.read_properties(&instance_id)?;
@@ -133,7 +133,7 @@ pub async fn read_properties(
 #[tauri::command]
 pub async fn write_properties(
     state: State<'_, Arc<NodeService>>,
-    node_id: String,
+    _node_id: String,
     instance_id: String,
     doc: PropertiesDoc,
 ) -> Result<Action, MinewrapError> {
@@ -145,7 +145,7 @@ pub async fn write_properties(
 #[tauri::command]
 pub async fn list_mods(
     state: State<'_, Arc<NodeService>>,
-    node_id: String,
+    _node_id: String,
     instance_id: String,
 ) -> Result<Vec<ModDto>, MinewrapError> {
     state.list_mods(&instance_id)
@@ -154,7 +154,7 @@ pub async fn list_mods(
 #[tauri::command]
 pub async fn toggle_mod(
     state: State<'_, Arc<NodeService>>,
-    node_id: String,
+    _node_id: String,
     instance_id: String,
     name: String,
 ) -> Result<Action, MinewrapError> {
@@ -214,7 +214,7 @@ pub async fn discord_test(
 
 /// `GET /health` proxy (v1 `GET /health`).
 #[tauri::command]
-pub async fn health(state: State<'_, Arc<NodeService>>, node_id: String) -> Result<Action, MinewrapError> {
+pub async fn health(_state: State<'_, Arc<NodeService>>, _node_id: String) -> Result<Action, MinewrapError> {
     Ok(Action {
         ok: true,
         detail: Some(minewrap_core::API_VERSION.to_string()),

@@ -1,73 +1,73 @@
-# Minewrap
+# Minewrap v2
 
-**Run and monitor Minecraft Java Edition servers from a desktop app — on this
-machine or a remote one — without keeping a terminal open or exposing RCON.**
+Fast, light desktop manager for Minecraft Java Edition servers (one or many, local or remote). A Tauri 2 + Svelte 5 app over a Tauri-free Rust core; the same core runs headless as `minewrapd` (axum REST+WebSocket) for always-on remote nodes and Discord posts.
 
-[![License: MIT](LICENSE)](LICENSE)
-[![Rust & Svelte stack](ARCHITECTURE.md)](ARCHITECTURE.md)
-[![Platform: Linux x86_64](ARCHITECTURE.md)](ARCHITECTURE.md)
+**v2.0.0** — Rust workspace + Svelte UI. v1.0.0 (Python) is in `legacy/` (tag `v1.0.0`), kept runnable; parity audit in `docs/PARITY.md`.
 
-> **Status:** v2 (Tauri + Svelte) is in development feedstock. The last stable
-> release is **[v1.0.0](https://github.com/longme179/Minewrap/releases/tag/v1.0.0)**
-> — the Python/PySide6 build, kept runnable under [`legacy/`](legacy/README.md)
-> (tagged `v1.0.0`). A single all-in-one **AppImage** contains GUI + daemon.
+## Quick start
 
-## Download (v1.0.0)
+```bash
+# Build the UI
+cd ui && pnpm install && pnpm build
 
-```
-mcpanel-x86_64.AppImage      (~93 MB, GUI + daemon in one file)
-mcpanel-x86_64.AppImage.sha256
-```
+# Run the daemon (headless, binds 127.0.0.1:8080 by default)
+cargo run -p minewrapd -- --config examples/minewrap.toml
 
-Requirements: Linux x86_64. Direct execution needs FUSE; on FUSE-less systems
-run it with `--appimage-extract-and-run`.
-
-```sh
-chmod +x mcpanel-x86_64.AppImage
-./mcpanel-x86_64.AppImage
+# Run the desktop app (Linux/Wayland first; needs webkit2gtk dev headers:
+#   sudo dnf install webkit2gtk-4.1-devel libsoup-devel gtk3-devel)
+cargo run -p minewrap-tauri
 ```
 
-## Quick start (v1.0.0)
+See [`docs/remote-access.md`](docs/remote-access.md) for reaching a remote daemon over SSH port-forward.
 
-1. Launch the AppImage — the setup wizard opens automatically.
-2. Choose your server directory and server jar, set JVM args (e.g. `-Xmx4G`),
-   optionally add a Discord webhook, then **Create & start**.
-3. The wizard writes `~/mcpanel/config.toml`, starts the bundled daemon in the
-   background (detached — it survives closing the GUI), stores the API token
-   (`0600`) and connects the node.
-4. Click the instance: **Console** for logs and commands (`stop`, `list`, …),
-   **Settings** for launch/probe/restart and Discord.
+## Repo layout
 
-> mcpanel starts and owns its own server process. A server started by hand in
-> a terminal is invisible to it — stop that first; two servers in the same
-> world/port will conflict.
+```
+Cargo.toml           # workspace
+crates/minewrap-core # Tauri-free core: config, process, logs, poller, discord, properties, mods
+crates/minewrapd     # headless axum daemon (REST + WS)
+crates/minewrap-remote # reqwest client for remote nodes
+crates/fake-mc-server # stress fixture
+src-tauri/           # Tauri commands/events/capabilities
+ui/                  # Vite + Svelte + TS SPA
+docs/                # PARITY, design, remote-access, adrs
+design-system/       # ui-ux-pro-max generated tokens
+packaging/           # systemd user unit
+scripts/             # measure-rss.sh
+legacy/              # v1.0.0 (Python, runnable)
+```
 
-## What v1.0.0 does
+## Tests / lints
 
-- start/stop/restart with an explicit state machine, startup timeout,
-  graceful `stop` → SIGTERM → SIGKILL escalation
-- live console with backfill, command input and history, pause-on-scroll
-- status probe (players, version, MOTD, latency, uptime) with a separate
-  reachability state (`unresponsive` instead of a false `offline`)
-- crash-restart policy with backoff and restart-loop protection
-- Discord: one message edited in place every N seconds (default 10 min) plus
-  debounced state-change posts; ANSI/IP/user-regex redaction
-- multi-node GUI (local + remote by token, SSH port-forward recommended or
-  TLS reverse proxy), bearer-token auth, loopback bind by default
+```bash
+cargo test --workspace
+cd ui && pnpm test && pnpm run check && pnpm build
+```
 
-## This repository
+Warnings are denied in the Rust workspace (`[workspace.lints.rust]`).
 
-| Path | What |
-|---|---|
-| `legacy/` | v1.0.0 (Python, runnable) — parity reference |
-| `docs/PARITY.md` | full feature/API/test audit of v1.0.0 with v2 targets |
-| `ARCHITECTURE.md` | v2 architecture, IPC contract, config schema |
-| `docs/design/` | design brief + ui-ux-pro-max decisions |
-| `design-system/` | persisted ui-ux-pro-max design system (skill output) |
-| `docs/screenshot.png` | v1.0.0 GUI screenshot |
+## Performance
 
-The v2 stack (Tauri 2 + Svelte 5 + Rust workspace) is being built on `main`
-starting with `minewrap-core`. See `ARCHITECTURE.md` for the plan and layout.
+Budgets and how to measure them: [`scripts/measure-rss.sh`](scripts/measure-rss.sh) (main Tauri process, each WebKit helper, and the total, separately). Real heavy-modpack test (NeoForge 1.21.1, 6–8 GB): run the server, open the console, then:
+
+```bash
+cargo run -p minewrap-tauri
+./scripts/measure-rss.sh <tauri-main-pid> 30
+```
+
+Pass criterion: main Tauri process stable under 30 MB; otherwise the report lists the biggest contributors honestly.
+
+## Docs
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — IPC contract + config schema + threading/RSS budget
+- [`docs/PARITY.md`](docs/PARITY.md) — v1 → v2 parity audit
+- [`docs/design/BRIEF.md`](docs/design/BRIEF.md) + [`DECISIONS.md`](docs/design/DECISIONS.md) — design evidence
+- [`docs/remote-access.md`](docs/remote-access.md) — SSH forward (recommended)
+- [`docs/adr/`](docs/adr/) — architecture decision records
+
+## Release notes
+
+See [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md).
 
 ## License
 

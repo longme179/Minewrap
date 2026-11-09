@@ -1,0 +1,24 @@
+# Minewrap v2 example config (defaults mirror config.rs).
+[daemon]
+host = "127.0.0.1"
+port = 8080
+data_dir = "./data"
+
+[[instances]]
+id = "survival"
+name = "Survival"
+work_dir = "/srv/minecraft/survival"
+java_path = "java"
+jvm_args = ["-Xms2G", "-Xmx4G"]
+launch_args = ["-jar", "server.jar", "nogui"]
+
+[instances.probe]
+port = 25565
+timeout = 3.0
+
+[instances.restart]
+policy = "on-crash"
+max_retries = 5
+
+[instances.discord]
+enabled = false

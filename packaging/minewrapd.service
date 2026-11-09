@@ -1,0 +1,15 @@
+[Unit]
+Description=Minewrap daemon (headless, always-on Discord)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/minewrapd
+Environment=MINEWRAP_CONFIG=%h/.config/minewrap/minewrap.toml
+Restart=on-failure
+RestartSec=5
+# Keeps the token file 0600 (minewrapd itself writes it that way).
+UMask=0077
+
+[Install]
+WantedBy=default.target
