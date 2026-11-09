@@ -1,20 +1,23 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-build/
+# Cargo / Rust
+target/
+Cargo.lock
+*.rs.bk
+
+# Node
+node_modules/
+.pnpm-store/
 dist/
-.pytest_cache/
-.ruff_cache/
-.pyright/
+build-tauri/
 
 # Project runtime data (never commit secrets or server logs)
 data/
 *.log
 *.token
 token
+
+# Build artifacts
+build/
+dist/
 
 # Agent session state
 .commandcode/
@@ -23,6 +26,7 @@ token
 .idea/
 .vscode/
 
-# Build artifacts
-build/
-dist/
+# Legacy python artefacts (under legacy/ keep runnable; never commit inside)
+__pycache__/
+.venv/
+*.egg-info/

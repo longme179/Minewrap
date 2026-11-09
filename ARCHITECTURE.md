@@ -1,181 +1,168 @@
-# mcpanel — Architecture
+# Minewrap v2 — Architecture
 
-mcpanel manages Minecraft Java Edition servers. It has two parts:
-
-1. **`mcpanel_daemon`** — a headless node daemon that runs on any host. It owns the
-   Minecraft server process (stdin/stdout), probes its status, streams its console,
-   and pushes state + recent logs to a Discord webhook. Everything the GUI needs
-   lives here, so it keeps working when the GUI is closed.
-2. **`mcpanel_gui`** — a PySide6 desktop client that manages one or many nodes
-   (local or remote). It talks to the daemon **only** over HTTP/WebSocket. It never
-   spawns, signals, or reads files of a Minecraft server. "Local" is just a node at
-   `127.0.0.1` — no special case anywhere.
-
-Both share `mcpanel_common`: pydantic models for the config schema and the API
-contract (REST DTOs + WebSocket messages), plus the API version.
-
-## Component diagram
+Two binaries, one core. `minewrap-core` (Tauri-free) holds all server logic;
+the Tauri app embeds it as the **local node**; `minewrapd` (axum) is the same
+core headless for remote nodes. The Svelte frontend talks only to Tauri
+commands/events carrying `node_id` — no local/remote branch in UI code.
 
 ```mermaid
 flowchart LR
-    subgraph GUI machine [GUI — any machine]
-        Qt[PySide6 widgets] <--> VM[View models]
-        VM <--> AC[ApiClient: httpx + websockets]
+    subgraph UI [Webview — Svelte SPA]
+        V[Views / stores]
+        IPC[Tauri IPC adapter<br/>+ mock adapter]
+        V <--> IPC
     end
 
-    AC <-->|REST + WS, Bearer token| DAEMON
-
-    subgraph DAEMON [mcpanel_daemon — asyncio + FastAPI]
-        API[HTTP/WS API + auth]
-        IM[InstanceManager]
-        PM[ProcessManager]
-        LB[LogBuffer ring + rotating file]
-        PO[StatusPoller: mcstatus]
-        DN[DiscordNotifier: httpx]
-        EV[Event bus]
-        API <--> IM <--> PM
-        PM --> LB --> EV --> API
-        PO --> IM --> API
-        IM --> DN
+    subgraph TAURI [src-tauri]
+        Cmd[commands]
+        NodeSvc[NodeService]
+        Tray[tray / window]
+        Cmd <--> NodeSvc
     end
 
-    PM <-->|stdin / stdout| MC[Minecraft server process]
-    PO -.->|status / query| MC
-    DN -.->|webhook create/edit| DW[Discord webhook]
+    NodeSvc <--> Core[minewrap-core<br/>config · process · logs<br/>poller · discord · files]
+    NodeSvc -.-> Remote[minewrap-remote<br/>reqwest client]
+
+    IPC <--> Cmd
+    Remote <-->|HTTPS + WS, Bearer| Daemon[minewrapd<br/>axum REST + WS]
+    Daemon --> Core
+
+    Core -->|tokio::process| MC[Minecraft server<br/>java]
+    Core -->|reqwest rustls| DW[Discord webhook]
 ```
 
-## State machine
-
-The process manager is an explicit state machine. Every transition goes through a
-single `transition()` method, is logged, and is emitted on the event bus.
+## State machine (per instance)
 
 ```mermaid
 stateDiagram-v2
     [*] --> offline
-    offline --> starting: start requested
-    starting --> online: done-regex line seen
-    starting --> stopping: stop requested
-    starting --> crashed: exit, no stop requested / startup timeout
-    online --> stopping: stop requested
-    stopping --> offline: clean exit
-    online --> crashed: exit, no stop requested
-    crashed --> starting: restart due (policy=on-crash, retries left)
+    offline --> starting: start
+    starting --> online: done regex
+    starting --> stopping: stop
+    starting --> crashed: exit / startup timeout
+    online --> stopping: stop
+    online --> crashed: exit without stop
+    stopping --> offline: clean exit / escalation done
+    crashed --> starting: auto-restart (on-crash, retries left)
     crashed --> offline: stop acknowledged / retries exhausted
 ```
 
-| From | Trigger | To | Notes |
+Combined state merges process state and probe reachability exactly like v1:
+`online` requires both; ≥N probe failures → `unresponsive`; probe failures
+never produce `offline` while the process runs.
+
+## Log pipeline
+
+Child stdout (BufReader, UTF-8-lossy, huge lines truncated) →
+bounded `mpsc` → batcher (30–50 ms or N lines) → Tauri `emit("logs:batch")`
++ bounded ring for Discord/backfill. Frontend keeps the full ring (default
+1000, configurable), auto-sticks to bottom and pauses on scroll-up.
+
+Startup bursts must not re-render the list line-by-line: appends are batched
+and the DOM list is capped; WebKitGTK re-render cost is the main RSS/perf
+lever.
+
+## IPC command/event contract (authoritative)
+
+All calls carry `node_id`. Errors are `MinewrapError{code, message}` with
+codes `unauthorised`, `incompatible_version`, `offline`, `gone`.
+
+### Commands (Tauri, `async`)
+
+| Command | Args | Returns | v1 equivalent |
 |---|---|---|---|
-| offline | start requested | starting | `create_subprocess_exec`, own process group (`start_new_session=True`), `stdout=PIPE`, `stderr=STDOUT` |
-| starting | done line matches `done_regex` | online | default `Done \(\d+(\.\d+)?s\)! For help`, configurable |
-| starting | stop requested | stopping | user stops during boot; graceful `stop` then escalation |
-| starting | process exits, no stop requested | crashed | reason `crash_during_start` |
-| starting | `startup_timeout` elapsed | crashed | reason `startup_timeout`; kill the process tree |
-| online | stop requested | stopping | `requested_stop=True`; write `stop\n` to stdin |
-| stopping | process exits | offline | clean stop |
-| stopping | `stop_timeout` elapsed | stopping | escalate: SIGTERM to the group → wait → SIGKILL; `forced=True` |
-| online | process exits, no stop requested | crashed | reason `crashed` |
-| crashed | restart due | starting | policy `on-crash`, retries left, exponential backoff (capped) |
-| crashed | `max_retries` exhausted | crashed (stable) | stop auto-restarting; emit `restart_loop` event + Discord post |
-| crashed | stop acknowledged | offline | manual reset |
+| `list_instances` | `node_id` | `InstanceSummary[]` | `GET /instances` |
+| `get_snapshot` | `node_id, instance_id` | `InstanceSnapshot` | `GET /instances/{id}` |
+| `instance_start` / `instance_stop` / `instance_restart` | `node_id, instance_id` | `Action` | `POST …/start|stop|restart` |
+| `send_command` | `node_id, instance_id, command` | `CommandResponse` | `POST …/command` |
+| `get_logs` | `node_id, instance_id, limit, since_seq` | `Logs` | `GET …/logs` |
+| `get_config` / `update_config` | `node_id, instance_id (, update)` | `InstanceConfigView` | `GET/PUT …/config` |
+| `read_properties` / `write_properties` | `node_id, instance_id (, doc)` | `PropertiesDoc` | *new* |
+| `list_mods` / `toggle_mod` | `node_id, instance_id (, name)` | `ModEntry[]` / `Action` | *new* |
+| `discord_test` | `node_id, instance_id` | `DiscordTestResponse` | `POST …/discord/test` |
+| `list_nodes` / `add_node` / `remove_node` / `update_node` | node | `Node[]` / `Node` / `Action` | gui node store |
+| `health` | `node_id` | `HealthResponse` | `GET /health` |
 
-The crash counter resets once the instance has been online for
-`reset_after_online_seconds` (default 600 s).
+### Events (frontend listens)
 
-## Process state vs reachability vs combined state
+- `logs:batch` `{ node_id, instance_id, lines: [LogLine…], first_seq, last_seq }`
+- `state:changed` `{ node_id, instance_id, old, new, reason, snapshot }`
+- `snapshot:updated` `{ node_id, instance_id, snapshot }`
+- `node:connection` `{ node_id, state }` — `connecting|connected|offline|unauthorised|incompatible`
 
-The daemon tracks two separate facts in every snapshot, and derives a third:
+Payload caps: ≤100 lines or ~30 KB per batch. DTOs are shared with the daemon
+(shapes ported from v1.0.0 `mcpanel_common/api.py`).
 
-- **`process.state`** — what the daemon manages (the state machine above).
-- **`probe`** — what the mcstatus probe last saw (ok, latency, players, version, MOTD,
-  error, timestamp). Probe errors never raise out of the poller loop.
-- **`combined_state`** — what the GUI displays:
+## Config schema (`minewrap.toml`, schema 1)
 
-| process.state | last probe | combined_state |
-|---|---|---|
-| offline | — | offline |
-| starting | any | starting |
-| online | ok | online |
-| online | failing < N consecutive | online (degraded) |
-| online | failing ≥ N consecutive | unresponsive |
-| stopping | any | stopping |
-| crashed | any | crashed |
+```toml
+[daemon]
+host = "127.0.0.1"
+port = 8080
+data_dir = "./data"
+token = "…"                      # read from keyring/0600 file when present
+status_poll_interval = 15
+unresponsive_after_failures = 2
+[daemon.defaults]
+startup_timeout = 300, stop_timeout = 60, kill_grace_seconds = 5
+done_regex = 'Done \(\d+(\.\d+)?s\)! For help'
+log_buffer_lines = 500, log_max_bytes = 10485760, log_backups = 3
 
-A probe failure while the process runs **never** reports `offline`.
-
-## Data flows
-
-- **Console**: subprocess stdout → log reader task → `LogBuffer` (in-memory ring,
-  monotonic `seq` + timestamp per line) → teed to a rotating file under
-  `data_dir/logs/<instance_id>.log` and fanned out over the event bus to console
-  WebSocket subscribers. Slow clients get a bounded queue (128): on overflow the
-  queue is dropped and a `resync` marker is sent; the client re-backfills over REST
-  (`GET .../logs?since_seq=`).
-- **Status**: per instance, every `status_poll_interval` seconds, `mcstatus`
-  `async_status()` (plus `async_query()` when enabled) updates `probe` and the
-  combined state; snapshots are broadcast over `/api/v1/events`.
-- **Discord**: a per-instance task wakes `interval_seconds` after
-  `first_push_delay_seconds`, builds an embed from the snapshot + last `log_lines`
-  log lines, and creates (mode `edit-in-place`) or posts (mode `new-message`) it.
-  Edit-in-place persists the Discord `message_id` in a state file under
-  `data_dir/discord/`; a 404 on PATCH means the message was deleted → create anew.
-  Immediate debounced posts on state changes (started/stopped/crashed/restart-loop).
-
-## Concurrency model
-
-- **Daemon**: one asyncio loop. Subprocess stdio via asyncio streams; probes via
-  mcstatus async methods; Discord via `httpx.AsyncClient`; per-client bounded queues
-  so no client can stall the server. No blocking calls.
-- **GUI**: the Qt main thread only touches widgets. REST calls run on worker threads
-  (`QThreadPool`); each WebSocket connection runs in its own `QThread`. View models
-  are plain Python using QtCore signals only, so they are testable without a display
-  (`QT_QPA_PLATFORM=offscreen`).
-
-## Security model
-
-- Daemon binds to `127.0.0.1` by default. Remote access is opt-in and documented
-  (see `docs/remote-access.md`): SSH port-forward (recommended) or reverse proxy
-  with TLS. RCON is never exposed by the API.
-- Bearer-token auth on everything except `/health`; constant-time comparison
-  (`hmac.compare_digest`). The token is either set in config or generated on first
-  run into `data_dir/token` (mode 0600) and printed once.
-- Secrets (`webhook_url`, token, RCON password) never appear in logs, error
-  messages, UI text, or git. `SecretStr` prevents accidental repr/JSON leakage;
-  config files written by the daemon are mode 0600; the webhook URL is write-only
-  over the API (`webhook_set: bool` is all that comes back).
-- Discord log hygiene: ANSI stripping, IP redaction (including the `/1.2.3.4:5678`
-  login form), user-defined redaction regexes, line truncation, and a char budget
-  (~1500 by default, well under Discord's 4096-char embed-description limit).
-- WebSocket auth uses the `Authorization` header only — never `?token=` query
-  strings, which leak into access logs. An invalid token is rejected at the
-  handshake with an HTTP 401 denial (the same dependency guards REST and WS).
-
-## Known limitations (documented, not hidden)
-
-- If the daemon dies, its child servers die with it. Detached mode is a future
-  option, not a first-pass feature.
-- RCON-based TPS reporting is behind a feature flag and not implemented in the
-  first pass; the config schema already reserves space for it.
-- Server-list ping only reports players the server chooses to advertise; full
-  player lists require `query_enabled` (and the server's `enable-query=true`).
-
-## Repository layout
-
+[[instances]]
+id = "survival"                 # ^[a-z0-9][a-z0-9_-]{0,62}[a-z0-9]$
+name = "Survival"
+work_dir = "/srv/minecraft/survival"
+java_path = "java"
+jvm_args = ["-Xms2G", "-Xmx4G"]
+launch_args = ["-jar", "server.jar", "nogui"]
+autostart = false
+[instances.probe]
+host = "127.0.0.1", port = 25565, query_enabled = true
+query_port = 25565, timeout = 3.0
+[instances.restart]
+policy = "on-crash"             # never | on-crash
+max_retries = 5, backoff_base_seconds = 5, backoff_max_seconds = 300
+reset_after_online_seconds = 600
+[instances.discord]
+enabled = true
+webhook_url = "https://…"       # stored in the keyring/0600, exposed as webhook_set
+mode = "edit-in-place"          # edit-in-place | new-message
+interval_seconds = 600, first_push_delay_seconds = 10
+log_lines = 15, max_log_chars = 1500
+state_change_posts = true, state_change_debounce_seconds = 30
+redact_regexes = []
+[instances.rcon]
+enabled = false                 # reserved; still unimplemented (documented)
+host = "127.0.0.1", port = 25575
+password_env = "MC_RCON_PASSWORD"
 ```
-mcpanel/
-├── pyproject.toml            # uv workspace root
-├── config.example.toml       # full annotated daemon config
-├── ARCHITECTURE.md           # this file
-├── docs/
-│   ├── openapi.json          # generated from the FastAPI app, committed (REST only:
-│   │                         #   OpenAPI 3.0 can't express the WebSocket routes;
-│   │                         #   the WS contract is the pydantic message models)
-│   ├── remote-access.md      # SSH tunnel + reverse proxy (Phase 6)
-│   └── discord.md            # Discord notifier behaviour (Phase 4)
-├── packaging/
-│   └── mcpanel-daemon.service  # systemd user unit example (Phase 7)
-├── packages/
-│   ├── mcpanel-common/       # pydantic models: config schema + API contract
-│   ├── mcpanel-daemon/       # FastAPI daemon (process mgr, poller, notifier)
-│   └── mcpanel-gui/          # PySide6 client (Phase 5)
-└── tests/                    # one pytest run for the whole workspace
-```
+
+Migration from v1.0.0 `config.toml` (`legacy/config.example.toml` and
+`mcpanel_common/config.py`): fields map 1:1 except `token` and
+`discord.webhook_url` move to the secrets store; `data_dir`/`work_dir`
+resolve against the config file (same rule as v1). Unknown keys fail loudly
+(`deny_unknown_fields`). A one-time converter is `legacy/tools/convert_v1_config.py`
+(planned Phase 6).
+
+## Secrets
+
+Tokens/webhooks in the OS keyring (Secret Service) when available, else a
+`0600` file. Secrets never appear in logs, errors, UI text or git; config
+writes are `0600`; webhook is write-only over the API (`webhook_set: bool`
+in views). Never expose RCON. Daemon binds `127.0.0.1` by default.
+
+## Threading / memory budget
+
+- Embedded core + notifier + poller share one tokio runtime; Tauri commands
+  are async.
+- Rust keeps only the small log ring (Discord + backfill) — the webview
+  owns its 1000-line ring; the Tauri main process must stay **<30 MB RSS**
+  under load. Batching is the lever; report honestly in Phase 6
+  (`scripts/measure-rss.sh`; main vs WebKit helpers vs total).
+
+## Packaging
+
+- Tauri bundler for Linux (deb/AppImage per supported targets). The
+  `minewrapd` binary ships in `packaging/` with `minewrapd.service` (systemd
+  user unit). The v1 AIO AppImage flow is superseded by Tauri bundling +
+  `minewrapd`.
