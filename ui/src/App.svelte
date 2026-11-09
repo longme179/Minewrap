@@ -249,6 +249,8 @@
     border: 1px solid var(--color-destructive);
     border-radius: var(--radius-sm);
     color: var(--color-destructive);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .empty { color: var(--color-muted-foreground); padding: var(--space-lg); }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }

@@ -325,9 +325,7 @@ impl ProcessManager {
                         .expect("process manager runtime");
                     let handle = rt.spawn(self.run());
                     let _ = tx_done.send(handle);
-                    rt.block_on(async move {
-                        let _ = handle.await;
-                    });
+                    rt.block_on(std::future::pending::<()>());
                 });
                 let owner = rx_done
                     .recv()
@@ -504,7 +502,7 @@ impl ProcessManager {
                     }
                     if let Some(status) = exited {
                         if let Some(r) = reader.take() {
-                            let _ = tokio::time::timeout(Duration::from_millis(300), r).await;
+                            let _ = tokio::time::timeout(Duration::from_millis(500), r).await;
                         }
                         self.exit_code = status.code();
                         self.stopped_at = Some(Utc::now());
@@ -512,14 +510,35 @@ impl ProcessManager {
                         self.stop_started_at = None;
                         self.term_sent_at = None;
                         startup_deadline = None;
+                        let exit_detail = match status.code() {
+                            Some(code) => format!("exit code {code}"),
+                            None => "terminated by signal".to_string(),
+                        };
+                        let log_tail = {
+                            let buf = self.buffer.lock().unwrap_or_else(|p| p.into_inner());
+                            buf.tail(5)
+                                .into_iter()
+                                .map(|l| l.line.trim_end().to_string())
+                                .collect::<Vec<_>>()
+                                .join(" | ")
+                        };
+                        let with_tail = |prefix: &str| {
+                            if log_tail.is_empty() {
+                                format!("{prefix} ({exit_detail})")
+                            } else {
+                                format!("{prefix} ({exit_detail}): {log_tail}")
+                            }
+                        };
                         match self.state {
                             ProcessState::Stopping => self.transition(ProcessState::Offline, "stopped"),
                             ProcessState::Starting => {
-                                self.transition(ProcessState::Crashed, "crash_during_start");
+                                let reason = with_tail("crash_during_start");
+                                self.transition(ProcessState::Crashed, &reason);
                                 self.handle_crash(&mut reader).await;
                             }
                             ProcessState::Online => {
-                                self.transition(ProcessState::Crashed, "crashed");
+                                let reason = with_tail("crashed");
+                                self.transition(ProcessState::Crashed, &reason);
                                 self.handle_crash(&mut reader).await;
                             }
                             ProcessState::Crashed => self.handle_crash(&mut reader).await,

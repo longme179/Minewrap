@@ -748,7 +748,7 @@ impl NodeService {
             else {
                 return;
             };
-            if state == ProcessState::Crashed || reason.contains("spawn_failed") || reason.contains("failed") {
+            if state == ProcessState::Crashed || reason.contains("spawn_failed") || reason.contains("failed") || reason.contains("crash_during_start") || reason.contains("startup_timeout") {
                 rt.last_error = Some(reason.to_string());
             } else if matches!(state, ProcessState::Starting | ProcessState::Online) {
                 rt.last_error = None;
