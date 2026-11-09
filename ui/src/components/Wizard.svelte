@@ -2,11 +2,11 @@
   review. Reuses Settings' RAM/preset logic; validates EULA before
   the instance is created. -->
 <script lang="ts">
-  import { createAdapter } from "../ipc/factory.js";
+  import { createAdapter, isTauri } from "../ipc/factory.js";
   import { formatError } from "../lib/formatError.js";
   import Select from "./Select.svelte";
   import JavaPicker from "./JavaPicker.svelte";
-  import type { JavaRuntime, LaunchCandidateDto } from "../ipc/mod.js";
+  import type { JavaRuntime, LaunchCandidateDto, WorkDirReport } from "../ipc/mod.js";
 
   const ipc = createAdapter();
 
@@ -29,12 +29,14 @@
   let launchMode = $state<"jar" | "args-file" | "custom">("jar");
   let launchArgs = $state("");
   let candidates = $state<LaunchCandidateDto[]>([]);
+  let report = $state<WorkDirReport | null>(null);
   let scanError = $state("");
   let busy = $state(false);
   let error = $state("");
   let status = $state("");
   let runtimes = $state<JavaRuntime[]>([]);
   let scanNote = $state("");
+  let browsing = $state(false);
 
   const detected = $derived(
     candidates.find((c) => c.kind === "jar") ?? candidates[0] ?? null
@@ -43,28 +45,55 @@
   async function scan() {
     scanError = "";
     scanNote = "";
+    report = null;
     if (!workDir.trim()) {
       scanNote = "Enter a work dir first.";
-      return;
+      return false;
     }
     try {
       const res = await ipc.scanLaunch("local", workDir.trim());
       candidates = res.candidates;
-      if (detected?.suggested_launch_args?.length) {
-        launchArgs = detected.suggested_launch_args.join(" ");
+      report = res.report;
+      const d = candidates.find((c) => c.kind === "jar") ?? candidates[0] ?? null;
+      if (d?.suggested_launch_args?.length) {
+        launchArgs = d.suggested_launch_args.join(" ");
       }
-      if (detected?.mc_version) {
-        // Java-compat guard (§4c): warn, not block.
-        const need = detected.min_java;
+      if (d?.mc_version) {
+        const need = d.min_java;
         const sel = runtimes.find((r) => r.binary === javaPath);
         if (need && sel?.major && sel.major < need) {
-          scanNote = `Detected Minecraft ${detected.mc_version} needs Java ${need}+; selected is ${sel.major}.`;
+          scanNote = `Detected Minecraft ${d.mc_version} needs Java ${need}+; selected is ${sel.major}.`;
         } else {
-          scanNote = `Detected: ${detected.server_type ?? "Server"} ${detected.mc_version}`;
+          scanNote = `Detected: ${d.server_type ?? "Server"} ${d.mc_version}`;
         }
+      } else if (res.report.notes.length) {
+        scanNote = res.report.notes[0] ?? "";
+      }
+      return true;
+    } catch (e) {
+      scanError = formatError(e);
+      return false;
+    }
+  }
+
+  async function browseWorkDir() {
+    browsing = true;
+    scanError = "";
+    try {
+      if (isTauri()) {
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const picked = await open({ directory: true, multiple: false, title: "Select server folder" });
+        if (typeof picked === "string" && picked) {
+          workDir = picked;
+          await scan();
+        }
+      } else {
+        scanNote = "Folder picker is available in the desktop app. Enter the path manually.";
       }
     } catch (e) {
       scanError = formatError(e);
+    } finally {
+      browsing = false;
     }
   }
 
@@ -76,7 +105,7 @@
     }
   }
 
-  function next() {
+  async function next() {
     error = "";
     if (step === 1) {
       if (!ID_RE.test(id.trim())) {
@@ -87,9 +116,10 @@
         error = "Work dir is required.";
         return;
       }
-      void scan();
+      const ok = await scan();
+      if (!ok && scanError) return;
     }
-    if (maxRam < minRam) {
+    if (step === 3 && maxRam < minRam) {
       error = "Max RAM must be >= Min RAM.";
       return;
     }
@@ -97,7 +127,7 @@
       step += 1;
       return;
     }
-    void create();
+    await create();
   }
 
   function back() {
@@ -154,10 +184,25 @@
       Work dir
       <div class="row">
         <input class="input mono" bind:value={workDir} placeholder="/srv/minecraft/survival" />
+        <button type="button" class="btn-secondary" onclick={browseWorkDir} disabled={browsing}>
+          {browsing ? "Opening…" : "Browse"}
+        </button>
+        <button type="button" class="btn-secondary" onclick={() => void scan()} disabled={browsing || !workDir.trim()}>
+          Scan
+        </button>
       </div>
     </label>
     {#if scanError}
       <p role="alert" class="error">{scanError}</p>
+    {/if}
+    {#if report}
+      <ul class="cands">
+        <li>Readable: {report.readable ? "yes" : "no"} · Writable: {report.writable ? "yes" : "no"}</li>
+        <li>server.properties: {report.has_server_properties ? "found" : "missing"} · eula.txt: {report.has_eula ? "found" : "missing"}</li>
+        {#each report.notes as note (note)}
+          <li>{note}</li>
+        {/each}
+      </ul>
     {/if}
     {#if candidates.length > 0}
       <ul class="cands">

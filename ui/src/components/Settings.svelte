@@ -2,11 +2,11 @@
   probe, restart, with inline errors and a summary. Webhook is
   write-only (only `webhook_set` is shown). -->
 <script lang="ts">
-  import { createAdapter } from "../ipc/factory.js";
+  import { createAdapter, isTauri } from "../ipc/factory.js";
   import { formatError } from "../lib/formatError.js";
   import Select from "./Select.svelte";
   import JavaPicker from "./JavaPicker.svelte";
-  import type { ConfigView } from "../ipc/mod.js";
+  import type { ConfigView, WorkDirReport } from "../ipc/mod.js";
 
   const ipc = createAdapter();
 
@@ -25,6 +25,9 @@
   let saving = $state(false);
   let loadedFor = $state("");
   let savedSnapshot = $state("");
+  let browsing = $state(false);
+  let dirReport = $state<WorkDirReport | null>(null);
+  let dirError = $state("");
 
   let name = $state("");
   let workDir = $state("");
@@ -65,6 +68,7 @@
     loading = true;
     error = "";
     status = "";
+    dirError = "";
     try {
       view = await ipc.getConfig(nodeId, instanceId);
       name = view.name;
@@ -80,10 +84,44 @@
       restart = { ...view.restart };
       loadedFor = key;
       savedSnapshot = snapshot();
+      await validateWorkDir();
     } catch (e) {
       error = formatError(e);
     } finally {
       loading = false;
+    }
+  }
+
+  async function validateWorkDir() {
+    dirError = "";
+    dirReport = null;
+    if (!workDir.trim()) return;
+    try {
+      const res = await ipc.scanLaunch(nodeId, workDir.trim());
+      dirReport = res.report;
+    } catch (e) {
+      dirError = formatError(e);
+    }
+  }
+
+  async function browseWorkDir() {
+    browsing = true;
+    dirError = "";
+    try {
+      if (isTauri()) {
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const picked = await open({ directory: true, multiple: false, title: "Select server folder" });
+        if (typeof picked === "string" && picked) {
+          workDir = picked;
+          await validateWorkDir();
+        }
+      } else {
+        dirError = "Folder picker is available in the desktop app. Enter the path manually.";
+      }
+    } catch (e) {
+      dirError = formatError(e);
+    } finally {
+      browsing = false;
     }
   }
 
@@ -205,7 +243,29 @@
       <fieldset>
         <legend>Launch</legend>
         <label class="row"><span>Display name</span> <input class="input" bind:value={name} /></label>
-        <label class="row"><span>Work dir</span> <input class="input mono" bind:value={workDir} /></label>
+        <label class="row">
+          <span>Work dir</span>
+          <input class="input mono" bind:value={workDir} onblur={validateWorkDir} />
+          <button type="button" class="btn-secondary" onclick={browseWorkDir} disabled={browsing}>
+            {browsing ? "Opening…" : "Browse"}
+          </button>
+          <button type="button" class="btn-secondary" onclick={() => void validateWorkDir()} disabled={browsing || !workDir.trim()}>
+            Validate
+          </button>
+        </label>
+        {#if dirError}
+          <p role="alert" class="error">{dirError}</p>
+        {/if}
+        {#if dirReport}
+          <p class="hint">
+            Readable: {dirReport.readable ? "yes" : "no"} · Writable: {dirReport.writable ? "yes" : "no"}
+            · server.properties: {dirReport.has_server_properties ? "found" : "missing"}
+            · eula.txt: {dirReport.has_eula ? "found" : "missing"}
+          </p>
+          {#each dirReport.notes as note (note)}
+            <p class="hint">{note}</p>
+          {/each}
+        {/if}
         <JavaPicker bind:value={javaPath} />
         <!-- RAM / JVM args (goal §4d) -->
         <div class="row">

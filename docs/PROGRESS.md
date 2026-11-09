@@ -24,7 +24,8 @@ Status key: [ ] todo · [~] doing · [x] done · [!] blocked
   Evidence: Notifications tab wired in Dashboard; Settings/Properties/Mods/Notifications use `formatError`, loading/error states, and `pnpm run check` passes (this slice).
 
 ## 3. File / folder pickers
-- [ ] Work-dir Browse (Tauri dialog, capability `dialog:default`), Wayland degradation, live validation (exists/readable/writable, contents report).
+- [x] Work-dir Browse (Tauri dialog, capability `dialog:default`), Wayland degradation, live validation (exists/readable/writable, contents report).
+  Evidence: Wizard/Settings use `isTauri()` + `@tauri-apps/plugin-dialog` Browse with manual-path fallback and `scan_launch` validation notes; `pnpm run check` 0 errors (this slice).
 - [ ] Launch picker: Browse jar + scan (`*.jar`, `run.sh`, `user_jvm_args.txt`, Forge args files) + 3 modes (Jar / Args-file / Custom) + jar type/version detection with "Detected:" + override.
 - [ ] Probe port sync with `server-port`, manual override, port-conflict warning.
 
@@ -81,6 +82,8 @@ Status key: [ ] todo · [~] doing · [x] done · [!] blocked
 - [x] docs/BLOCKED.md (B-1 manual click-through, B-2 Wayland dialog, B-3 Cobblemon real test — agent never touches the real server dir).
 
 ## Evidence log
+- 2026-11-09 UI polish (2afc5a3): Settings dirty/save/revert, Dashboard `—` placeholders, Notifications tab wired, `pnpm run check` 0 errors, `pnpm test` 5 passed.
+- 2026-11-09 pickers (this slice): Wizard/Settings Browse+Validate via dialog fallback + scan_launch report; `pnpm run check` 0 errors.
 - 2026-11-09 22:25 wizard (13ffedd): pnpm check 0 errors; scan_launch + JavaPicker + RAM/review in Wizard.svelte.
 - 2026-11-09 21:38 Select (cb53985): pnpm check 0 errors.
 - 2026-11-09 21:30 formatError (4d81fd6): pnpm test 5 passed.
