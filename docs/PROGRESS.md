@@ -73,7 +73,11 @@ Status key: [ ] todo · [~] doing · [x] done · [!] blocked
 (recorded in docs/DECISIONS.md: decision + reason, one line each)
 
 ## Blocked
-(recorded in docs/BLOCKED.md with what is needed from the user)
+- [x] docs/BLOCKED.md (B-1 manual click-through, B-2 Wayland dialog, B-3 Cobblemon real test — agent never touches the real server dir).
 
 ## Evidence log
+- 2026-11-09 22:25 wizard (13ffedd): pnpm check 0 errors; scan_launch + JavaPicker + RAM/review in Wizard.svelte.
+- 2026-11-09 21:38 Select (cb53985): pnpm check 0 errors.
+- 2026-11-09 21:30 formatError (4d81fd6): pnpm test 5 passed.
+- 2026-11-09 22:05 java core (d4c2622): cargo test java 4 passed; workspace 45 passed.
 append below; never mark done without entry here
