@@ -16,6 +16,7 @@ import type {
   LogLine,
   ModDto,
   NodeId,
+  NodeInput,
   NodeSummary,
   PropertiesDoc,
   SnapshotDto,
@@ -25,6 +26,14 @@ import type {
 export class TauriIpcAdapter implements IpcAdapter {
   async listNodes(): Promise<NodeSummary[]> {
     return invoke<NodeSummary[]>("list_nodes");
+  }
+
+  async addNode(input: NodeInput): Promise<NodeSummary> {
+    return invoke<NodeSummary>("add_node", { input });
+  }
+
+  async removeNode(nodeId: NodeId): Promise<Action> {
+    return invoke<Action>("remove_node", { nodeId });
   }
 
   async listInstances(nodeId: NodeId): Promise<InstanceSummary[]> {

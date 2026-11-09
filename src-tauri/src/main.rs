@@ -110,6 +110,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_nodes,
+            commands::add_node,
+            commands::remove_node,
             commands::list_instances,
             commands::get_snapshot,
             commands::instance_start,

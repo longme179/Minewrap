@@ -21,7 +21,7 @@ pub enum Mode {
 fn main() -> std::process::ExitCode {
     let flags: Vec<String> = std::env::args().collect();
     let stdin = io::stdin();
-    let lines = io::BufReader::new(stdin.lock()).lines();
+    let mut lines = io::BufReader::new(stdin.lock()).lines();
 
     let mode = parse_mode(&flags);
     if matches!(mode, Mode::CrashDuringStart) {

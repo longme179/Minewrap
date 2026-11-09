@@ -1,8 +1,8 @@
 //! Tauri commands — the IPC surface between the Svelte webview and Rust.
 //!
 //! Every command carries `node_id`; `NodeService` routes to the embedded
-//! core (local) or the remote client. There is no local/remote branch in
-//! UI code, and no command ever returns a secret.
+//! core (local) or the `minewrap-remote` client (remote). No UI branch
+//! on local/remote, and no command ever returns a secret.
 
 use std::sync::Arc;
 
@@ -15,18 +15,35 @@ use crate::types::{
     Action, DiscordTestResponse, MinewrapError, ModDto, NodeSummary, PropertiesDoc,
 };
 
-fn local_or_remote(svc: &NodeService, node_id: &str) -> Result<(), MinewrapError> {
-    if svc.is_local(node_id) {
-        Ok(())
-    } else {
-        Err(svc.remote_offline(node_id))
-    }
-}
-
 /// Node discovery (v1 "gui node store" equivalent).
 #[tauri::command]
 pub async fn list_nodes(state: State<'_, Arc<NodeService>>) -> Result<Vec<NodeSummary>, MinewrapError> {
     state.list_nodes()
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct NodeInput {
+    pub name: String,
+    pub url: String,
+    pub token: String,
+}
+
+#[tauri::command]
+pub async fn add_node(
+    state: State<'_, Arc<NodeService>>,
+    input: NodeInput,
+) -> Result<NodeSummary, MinewrapError> {
+    let id = format!("remote-{}", input.url.replace(['/', ':', '.'], "-"));
+    state.add_remote_node(id, input.name, input.url, input.token)
+}
+
+#[tauri::command]
+pub async fn remove_node(
+    state: State<'_, Arc<NodeService>>,
+    node_id: String,
+) -> Result<Action, MinewrapError> {
+    let ok = state.remove_remote_node(&node_id)?;
+    Ok(Action { ok, detail: Some("removed".into()) })
 }
 
 /// Instances on a node (v1 `GET /instances`).
@@ -55,7 +72,6 @@ pub async fn instance_start(
     node_id: String,
     instance_id: String,
 ) -> Result<Action, MinewrapError> {
-    local_or_remote(&state, &node_id)?;
     state.start(&node_id, &instance_id)?;
     Ok(Action { ok: true, detail: Some("start requested".into()) })
 }
@@ -66,7 +82,6 @@ pub async fn instance_stop(
     node_id: String,
     instance_id: String,
 ) -> Result<Action, MinewrapError> {
-    local_or_remote(&state, &node_id)?;
     state.stop(&node_id, &instance_id)?;
     Ok(Action { ok: true, detail: Some("stop requested".into()) })
 }
@@ -77,7 +92,6 @@ pub async fn instance_restart(
     node_id: String,
     instance_id: String,
 ) -> Result<Action, MinewrapError> {
-    local_or_remote(&state, &node_id)?;
     state.restart(&node_id, &instance_id)?;
     Ok(Action { ok: true, detail: Some("restart requested".into()) })
 }
@@ -89,7 +103,6 @@ pub async fn send_command(
     instance_id: String,
     command: String,
 ) -> Result<Action, MinewrapError> {
-    local_or_remote(&state, &node_id)?;
     state.send_command(&node_id, &instance_id, &command)?;
     Ok(Action { ok: true, detail: Some("command sent".into()) })
 }
@@ -113,7 +126,6 @@ pub async fn read_properties(
     node_id: String,
     instance_id: String,
 ) -> Result<PropertiesDoc, MinewrapError> {
-    local_or_remote(&state, &node_id)?;
     let (text, errors) = state.read_properties(&instance_id)?;
     Ok(PropertiesDoc { text, errors })
 }
@@ -125,7 +137,6 @@ pub async fn write_properties(
     instance_id: String,
     doc: PropertiesDoc,
 ) -> Result<Action, MinewrapError> {
-    local_or_remote(&state, &node_id)?;
     state.write_properties(&instance_id, &doc.text)?;
     Ok(Action { ok: true, detail: Some("properties written".into()) })
 }
@@ -137,7 +148,6 @@ pub async fn list_mods(
     node_id: String,
     instance_id: String,
 ) -> Result<Vec<ModDto>, MinewrapError> {
-    local_or_remote(&state, &node_id)?;
     state.list_mods(&instance_id)
 }
 
@@ -148,7 +158,6 @@ pub async fn toggle_mod(
     instance_id: String,
     name: String,
 ) -> Result<Action, MinewrapError> {
-    local_or_remote(&state, &node_id)?;
     let enabled = state.toggle_mod(&instance_id, &name)?;
     Ok(Action { ok: true, detail: Some(if enabled { "enabled" } else { "disabled" }.to_string()) })
 }
@@ -160,7 +169,6 @@ pub async fn discord_test(
     node_id: String,
     instance_id: String,
 ) -> Result<DiscordTestResponse, MinewrapError> {
-    local_or_remote(&state, &node_id)?;
     let cfg = state.config_of(&instance_id)?;
     if !cfg.discord.enabled {
         return Err(MinewrapError::invalid("discord is disabled for this instance"));
@@ -207,7 +215,6 @@ pub async fn discord_test(
 /// `GET /health` proxy (v1 `GET /health`).
 #[tauri::command]
 pub async fn health(state: State<'_, Arc<NodeService>>, node_id: String) -> Result<Action, MinewrapError> {
-    local_or_remote(&state, &node_id)?;
     Ok(Action {
         ok: true,
         detail: Some(minewrap_core::API_VERSION.to_string()),

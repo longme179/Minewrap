@@ -25,3 +25,4 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "alloc", "serde"] }
 minewrap-core = { path = "../crates/minewrap-core" }
+minewrap-remote = { path = "../crates/minewrap-remote" }

@@ -5,10 +5,12 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+
 use crate::properties::confine_path;
 
 /// One entry in `mods/`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ModEntry {
     pub name: String,
     pub path: PathBuf,

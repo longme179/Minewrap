@@ -1,0 +1,21 @@
+[package]
+name = "minewrapd"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Headless axum daemon for Minewrap v2 (REST + WebSocket)"
+
+[[bin]]
+name = "minewrapd"
+path = "src/main.rs"
+
+[dependencies]
+minewrap-core = { path = "../minewrap-core" }
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "signal", "net"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "alloc", "serde"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+futures-util = "0.3"
+anyhow = "1"

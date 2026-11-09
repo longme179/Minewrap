@@ -91,8 +91,17 @@ export interface StateChanged {
   reason: string;
 }
 
+export interface NodeInput {
+  name: string;
+  url: string;
+  token: string;
+}
+
 export interface IpcAdapter {
   listNodes(): Promise<NodeSummary[]>;
+  addNode(input: NodeInput): Promise<NodeSummary>;
+  removeNode(nodeId: NodeId): Promise<Action>;
+  updateNode?(nodeId: NodeId, input: NodeInput): Promise<NodeSummary>;
   listInstances(nodeId: NodeId): Promise<InstanceSummary[]>;
   getSnapshot(nodeId: NodeId, instanceId: string): Promise<SnapshotDto>;
   instanceStart(nodeId: NodeId, instanceId: string): Promise<Action>;

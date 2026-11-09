@@ -12,6 +12,7 @@ import type {
   LogBatch,
   LogLine,
   ModDto,
+  NodeInput,
   NodeSummary,
   NodeId,
   PropertiesDoc,
@@ -57,6 +58,20 @@ export class MockIpcAdapter implements IpcAdapter {
         state: "connected",
       },
     ];
+  }
+
+  async addNode(input: NodeInput): Promise<NodeSummary> {
+    return {
+      id: input.url.replace(/^https?:\/\//, ""),
+      name: input.name,
+      url: input.url,
+      is_local: false,
+      state: "connected",
+    };
+  }
+
+  async removeNode(_nodeId: NodeId): Promise<Action> {
+    return { ok: true };
   }
 
   async listInstances(_nodeId: NodeId): Promise<InstanceSummary[]> {
