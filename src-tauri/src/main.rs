@@ -101,13 +101,12 @@ fn ensure_daemon_running() {
     }
 }
 
-fn spawn_forwarder(
+async fn spawn_forwarder_future(
     handle: tauri::AppHandle,
     svc: Arc<NodeService>,
 ) {
-    tokio::spawn(async move {
-        use minewrap_core::Event;
-        let mut sub = svc.subscribe();
+    use minewrap_core::Event;
+    let mut sub = svc.subscribe();
         // pending: (instance_id, lines) per instance so batches carry the
         // correct instance_id (was previously hardcoded empty).
         let mut pending: Vec<(String, minewrap_core::LogLine)> = Vec::new();
@@ -154,8 +153,7 @@ fn spawn_forwarder(
                     }
                 }
             }
-        }
-    });
+    }
 }
 
 fn main() {
@@ -183,7 +181,18 @@ fn main() {
         .setup(move |app| {
             let svc = node_service.clone();
             let handle = app.handle().clone();
-            spawn_forwarder(handle, svc);
+            // Spawn the forwarder on a dedicated Tokio runtime — the
+            // AppImage entry has no ambient runtime until the webview
+            // is ready.
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .expect("event forwarder runtime");
+                rt.block_on(async {
+                    spawn_forwarder_future(handle, svc).await;
+                });
+            });
             // The guaranteed always-on path is the systemd unit
             // (packaging/minewrapd.service); the stated tray is
             // best-effort on Wayland and omitted here to keep the
