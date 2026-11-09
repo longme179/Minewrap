@@ -207,6 +207,7 @@ impl DoneMatcher {
 /// Owner-side controls.
 pub enum Control {
     Start,
+    ApplyConfig(InstanceConfig),
     Stop,
     SendCommand(String),
     Shutdown,
@@ -413,6 +414,9 @@ impl ProcessManager {
                 msg = rx.recv() => {
                     let Some(msg) = msg else { return };
                     match msg {
+                        Control::ApplyConfig(cfg) => {
+                            self.config = cfg;
+                        }
                         Control::Start => {
                             if !matches!(self.state, ProcessState::Offline | ProcessState::Crashed) {
                                 continue;

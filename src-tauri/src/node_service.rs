@@ -443,6 +443,7 @@ impl NodeService {
             .cloned()
             .ok_or_else(|| MinewrapError::gone(format!("instance {instance_id} not found")))?;
 
+        let tx = self.ctrl_tx(instance_id).ok();
         self.with_inner(|inner| {
             if let Some(rt) = inner
                 .instances
@@ -453,6 +454,9 @@ impl NodeService {
                 rt.name = updated.display_name().to_string();
             }
         });
+        if let Some(tx) = tx {
+            let _ = tx.send(Control::ApplyConfig(updated.clone())).await;
+        }
         if !self.config_path.is_empty() {
             daemon
                 .save_to(&self.config_path)
