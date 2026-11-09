@@ -220,3 +220,45 @@ pub async fn health(_state: State<'_, Arc<NodeService>>, _node_id: String) -> Re
         detail: Some(minewrap_core::API_VERSION.to_string()),
     })
 }
+
+/// Config read/write (v1 `GET/PUT …/config` — masked view, write-only
+/// webhook). The frontend never sees the webhook URL.
+#[tauri::command]
+pub async fn get_config(
+    state: State<'_, Arc<NodeService>>,
+    _node_id: String,
+    instance_id: String,
+) -> Result<serde_json::Value, MinewrapError> {
+    Ok(state.instance_view(&instance_id)?)
+}
+
+#[tauri::command]
+pub async fn update_config(
+    state: State<'_, Arc<NodeService>>,
+    _node_id: String,
+    instance_id: String,
+    patch: serde_json::Value,
+) -> Result<Action, MinewrapError> {
+    state.patch_instance(&instance_id, patch)?;
+    Ok(Action { ok: true, detail: Some("config updated".into()) })
+}
+
+/// Instance add (validates, spawns the process manager, persists).
+#[tauri::command]
+pub async fn add_instance(
+    state: State<'_, Arc<NodeService>>,
+    config: minewrap_core::InstanceConfig,
+) -> Result<Action, MinewrapError> {
+    state.add_instance(config)?;
+    Ok(Action { ok: true, detail: Some("instance added".into()) })
+}
+
+#[tauri::command]
+pub async fn remove_instance(
+    state: State<'_, Arc<NodeService>>,
+    _node_id: String,
+    instance_id: String,
+) -> Result<Action, MinewrapError> {
+    state.remove_instance(&instance_id)?;
+    Ok(Action { ok: true, detail: Some("instance removed".into()) })
+}

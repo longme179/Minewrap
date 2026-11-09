@@ -6,7 +6,10 @@
 
 import type {
   Action,
+  ConfigPatch,
+  ConfigView,
   DiscordTestResponse,
+  InstanceInput,
   InstanceSummary,
   IpcAdapter,
   LogBatch,
@@ -72,6 +75,50 @@ export class MockIpcAdapter implements IpcAdapter {
 
   async removeNode(_nodeId: NodeId): Promise<Action> {
     return { ok: true };
+  }
+
+  async addInstance(_input: InstanceInput): Promise<Action> {
+    return { ok: true, detail: "instance added" };
+  }
+
+  async removeInstance(_nodeId: NodeId, _instanceId: string): Promise<Action> {
+    return { ok: true, detail: "instance removed" };
+  }
+
+  async getConfig(_nodeId: NodeId, instanceId: string): Promise<ConfigView> {
+    return {
+      id: instanceId,
+      name: "Survival",
+      work_dir: "/srv/minecraft/survival",
+      java_path: "java",
+      jvm_args: ["-Xms2G", "-Xmx4G"],
+      launch_args: ["-jar", "server.jar", "nogui"],
+      autostart: false,
+      probe: { host: "127.0.0.1", port: 25565, query_enabled: false, timeout: 3.0 },
+      restart: {
+        policy: "on-crash",
+        max_retries: 5,
+        backoff_base_seconds: 5.0,
+        backoff_max_seconds: 300.0,
+        reset_after_online_seconds: 600.0,
+      },
+      discord: {
+        enabled: false,
+        webhook_set: false,
+        mode: "edit-in-place",
+        interval_seconds: 600,
+        first_push_delay_seconds: 10,
+        log_lines: 15,
+        max_log_chars: 1500,
+        state_change_posts: true,
+        state_change_debounce_seconds: 30,
+        redact_regexes: [],
+      },
+    };
+  }
+
+  async updateConfig(_nodeId: NodeId, _instanceId: string, _patch: ConfigPatch): Promise<Action> {
+    return { ok: true, detail: "config updated" };
   }
 
   async listInstances(_nodeId: NodeId): Promise<InstanceSummary[]> {

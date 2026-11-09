@@ -365,6 +365,164 @@ impl NodeService {
         })
     }
 
+    /// Instance view (secrets masked) — v1 `GET …/config`.
+    pub fn instance_view(&self, instance_id: &str) -> Result<serde_json::Value, MinewrapError> {
+        let cfg = self.config_of(instance_id)?;
+        let _ = cfg;
+        Ok(serde_json::json!({
+            "id": instance_id,
+            "name": self.name_of(instance_id)?,
+            "work_dir": self.work_dir(instance_id)?.to_string_lossy(),
+            "java_path": self.config_of(instance_id)?.java_path,
+            "jvm_args": self.config_of(instance_id)?.jvm_args,
+            "launch_args": self.config_of(instance_id)?.launch_args,
+            "autostart": self.config_of(instance_id)?.autostart,
+            "probe": self.config_of(instance_id)?.probe,
+            "restart": self.config_of(instance_id)?.restart,
+            "discord": discord_view(&self.config_of(instance_id)?.discord),
+        }))
+    }
+
+    fn name_of(&self, instance_id: &str) -> Result<String, MinewrapError> {
+        Ok(self.config_of(instance_id)?.display_name().to_string())
+    }
+
+    /// Write-only patch; persists via the TOML store (0600).
+    pub fn patch_instance(
+        &self,
+        instance_id: &str,
+        patch: serde_json::Value,
+    ) -> Result<bool, MinewrapError> {
+        // Patch the in-memory config (the source of truth for the
+        // running core), then persist it.
+        let mut updated = self.config_of(instance_id)?;
+        let mut doc = serde_json::json!({
+            "name": updated.name,
+            "work_dir": updated.work_dir,
+            "java_path": updated.java_path,
+            "jvm_args": updated.jvm_args,
+            "launch_args": updated.launch_args,
+            "autostart": updated.autostart,
+            "probe": serde_json::to_value(&updated.probe).unwrap_or(serde_json::json!({})),
+            "restart": serde_json::to_value(&updated.restart).unwrap_or(serde_json::json!({})),
+            "discord": serde_json::to_value(&updated.discord).unwrap_or(serde_json::json!({})),
+        });
+        // Shallow-merge the outer keys, let `patch_instance` in core
+        // validate Discord/probe/restart sub-objects.
+        for (k, v) in patch.as_object().cloned().unwrap_or_default() {
+            doc[&k] = v;
+        }
+        let mut daemon = self.daemon.clone();
+        daemon
+            .patch_instance(instance_id, doc)
+            .map_err(MinewrapError::invalid)?;
+        updated = daemon
+            .instances
+            .iter()
+            .find(|c| c.id == instance_id)
+            .cloned()
+            .ok_or_else(|| MinewrapError::gone(format!("instance {instance_id} not found")))?;
+
+        self.with_inner(|inner| {
+            if let Some(rt) = inner
+                .instances
+                .get_mut(LOCAL_NODE_ID)
+                .and_then(|m| m.get_mut(instance_id))
+            {
+                rt.config = updated.clone();
+                rt.name = updated.display_name().to_string();
+            }
+        });
+        // Re-publish: `daemon` on the struct is immutable, so we only
+        // persist `daemon` to the config file. The in-memory
+        // `InstanceRuntime.config` above is what `config_of` returns.
+        if !self.config_path.is_empty() {
+            daemon
+                .save_to(&self.config_path)
+                .map_err(MinewrapError::invalid)?;
+        }
+        Ok(true)
+    }
+
+    /// Add a new instance at runtime (validates, spawns its
+    /// `ProcessManager`, persists to TOML).
+    pub fn add_instance(
+        &self,
+        cfg: InstanceConfig,
+    ) -> Result<bool, MinewrapError> {
+        cfg.validate().map_err(MinewrapError::invalid)?;
+        let id = cfg.id.clone();
+        let defaults = self.daemon.daemon.defaults.clone();
+        let buf = Arc::new(Mutex::new(LogBuffer::new(defaults.log_buffer_lines)));
+        let mgr = ProcessManager::new(
+            cfg.clone(),
+            defaults.clone(),
+            self.bus.clone(),
+            buf.clone(),
+            None,
+        );
+        let handle = mgr.spawn();
+        let state = InstanceState::new(
+            cfg.id.clone(),
+            cfg.display_name().to_string(),
+            self.daemon.daemon.unresponsive_after_failures,
+        );
+        let rt = InstanceRuntime {
+            id: cfg.id.clone(),
+            name: cfg.display_name().to_string(),
+            config: cfg.clone(),
+            state,
+            handle: Some(handle),
+            buffer: buf,
+            probe: ProbeInfo::default(),
+        };
+
+        // Persist: add to a cloned doc and write 0600.
+        let mut daemon = self.daemon.clone();
+        if daemon.instances.iter().any(|c| c.id == id) {
+            return Err(MinewrapError::invalid(format!("duplicate instance id: {id:?}")));
+        }
+        daemon.instances.push(cfg);
+        daemon.validate().map_err(MinewrapError::invalid)?;
+        if !self.config_path.is_empty() {
+            daemon
+                .save_to(&self.config_path)
+                .map_err(MinewrapError::invalid)?;
+        }
+
+        self.with_inner(|inner| {
+            inner
+                .instances
+                .entry(LOCAL_NODE_ID.to_string())
+                .or_default()
+                .insert(rt.id.clone(), rt);
+        });
+        Ok(true)
+    }
+
+    /// Remove an instance (stops it, drops its runtime, persists).
+    pub fn remove_instance(&self, instance_id: &str) -> Result<bool, MinewrapError> {
+        self.stop(LOCAL_NODE_ID, instance_id).ok();
+        let removed = self.with_inner(|inner| {
+            inner
+                .instances
+                .get_mut(LOCAL_NODE_ID)
+                .and_then(|m| m.remove(instance_id))
+                .is_some()
+        });
+        if !removed {
+            return Err(MinewrapError::gone(format!("instance {instance_id} not found")));
+        }
+        let mut daemon = self.daemon.clone();
+        daemon.instances.retain(|c| c.id != instance_id);
+        if !self.config_path.is_empty() {
+            daemon
+                .save_to(&self.config_path)
+                .map_err(MinewrapError::invalid)?;
+        }
+        Ok(true)
+    }
+
     // --- lifecycle (real `ProcessManager::Control` mux) ---
 
     pub fn start(&self, node_id: &str, instance_id: &str) -> Result<bool, MinewrapError> {
@@ -505,4 +663,19 @@ pub struct SnapshotDto {
     pub players_online: Option<u32>,
     pub players_max: Option<u32>,
     pub version: Option<String>,
+}
+
+fn discord_view(d: &minewrap_core::DiscordConfig) -> serde_json::Value {
+    serde_json::json!({
+        "enabled": d.enabled,
+        "webhook_set": d.webhook_set(),
+        "mode": d.mode,
+        "interval_seconds": d.interval_seconds,
+        "first_push_delay_seconds": d.first_push_delay_seconds,
+        "log_lines": d.log_lines,
+        "max_log_chars": d.max_log_chars,
+        "state_change_posts": d.state_change_posts,
+        "state_change_debounce_seconds": d.state_change_debounce_seconds,
+        "redact_regexes": d.redact_regexes,
+    })
 }

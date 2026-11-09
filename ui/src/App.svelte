@@ -3,6 +3,7 @@
   browser) — see `src/main.ts`. -->
 <script lang="ts">
   import Dashboard from "./components/Dashboard.svelte";
+  import AddInstance from "./components/AddInstance.svelte";
   import { createAdapter } from "./ipc/factory.js";
   import { createConsoleStore } from "./stores/console.js";
 
@@ -17,20 +18,42 @@
     version?: string | null; probe_ok: boolean;
   }>(null);
   let nodeState = $state("connected");
+  let selectedNode = $state("local");
   let selectedInstance = $state("survival");
+  let tab = $state("console");
+  let view = $state<"tree" | "add">("tree");
 
   async function load() {
     nodes = await ipc.listNodes();
-    instances = await ipc.listInstances(nodes[0]?.id ?? "local");
-    if (instances[0]) selectedInstance = instances[0].id;
-    snapshot = await ipc.getSnapshot(nodes[0]?.id ?? "local", selectedInstance);
+    selectedNode = nodes[0]?.id ?? "local";
     nodeState = nodes[0]?.state ?? "offline";
-    await store.appendBatch(await ipc.getLogs(nodes[0]?.id ?? "local", selectedInstance, 200));
+    await loadInstances();
   }
 
-  async function start() { await ipc.instanceStart(nodes[0]?.id ?? "local", selectedInstance); await load(); }
-  async function stop() { await ipc.instanceStop(nodes[0]?.id ?? "local", selectedInstance); await load(); }
-  async function restart() { await ipc.instanceRestart(nodes[0]?.id ?? "local", selectedInstance); await load(); }
+  async function loadInstances() {
+    instances = await ipc.listInstances(selectedNode);
+    if (instances[0] && !instances.some((i) => i.id === selectedInstance)) {
+      selectedInstance = instances[0].id;
+    }
+    snapshot = await ipc.getSnapshot(selectedNode, selectedInstance);
+    await store.appendBatch(await ipc.getLogs(selectedNode, selectedInstance, 200));
+  }
+
+  async function start() { await ipc.instanceStart(selectedNode, selectedInstance); await loadInstances(); }
+  async function stop() { await ipc.instanceStop(selectedNode, selectedInstance); await loadInstances(); }
+  async function restart() { await ipc.instanceRestart(selectedNode, selectedInstance); await loadInstances(); }
+
+  async function remove() {
+    await ipc.removeInstance(selectedNode, selectedInstance);
+    selectedInstance = "";
+    await loadInstances();
+  }
+
+  function selectInstance(id: string) {
+    selectedInstance = id;
+    view = "tree";
+    void loadInstances();
+  }
 
   $effect(() => {
     store.attach(ipc);
@@ -50,8 +73,18 @@
       <ul>
         {#each nodes as n (n.id)}
           <li>
-            <span class="dot dot-online" aria-hidden="true"></span>
-            {n.name} — {n.state}
+            <button
+              type="button"
+              class="tree-item"
+              class:tree-active={selectedNode === n.id}
+              onclick={() => {
+                selectedNode = n.id;
+                void loadInstances();
+              }}
+            >
+              <span class="dot dot-online" aria-hidden="true"></span>
+              {n.name} — {n.state}
+            </button>
           </li>
         {/each}
       </ul>
@@ -59,16 +92,45 @@
       <ul>
         {#each instances as i (i.id)}
           <li>
-            <button type="button" class="tree-item" onclick={() => (selectedInstance = i.id)}>
+            <button
+              type="button"
+              class="tree-item"
+              class:tree-active={selectedInstance === i.id}
+              onclick={() => selectInstance(i.id)}
+            >
               <strong>{i.name}</strong>
               <span class="badge">{i.combined_state}</span>
             </button>
           </li>
         {/each}
       </ul>
+      <div class="tree-actions">
+        <button type="button" class="btn-secondary" onclick={() => (view = "add")}>+ Add instance</button>
+        {#if selectedInstance}
+          <button type="button" class="btn-secondary danger" onclick={remove}>Remove</button>
+        {/if}
+      </div>
     </nav>
     <section class="page" aria-label="Instance view">
-      <Dashboard {snapshot} {nodeState} onStart={start} onStop={stop} onRestart={restart} />
+      {#if selectedInstance}
+        <Dashboard
+          {snapshot}
+          {nodeState}
+          nodeId={selectedNode}
+          instanceId={selectedInstance}
+          bind:tab
+          onStart={start}
+          onStop={stop}
+          onRestart={restart}
+        />
+      {:else if view === "add"}
+        <AddInstance onChanged={() => void loadInstances()} />
+      {:else}
+        <p class="empty">Select an instance, or add one.</p>
+      {/if}
+      {#if view === "add"}
+        <AddInstance onChanged={() => { view = "tree"; void loadInstances(); }} />
+      {/if}
     </section>
   </div>
 </main>
@@ -100,6 +162,8 @@
     border-right: 1px solid var(--color-border);
     padding: var(--space-md);
     font-size: 13px;
+    display: flex;
+    flex-direction: column;
   }
   .tree-title {
     color: var(--color-muted-foreground);
@@ -117,8 +181,23 @@
     cursor: pointer;
     text-align: left;
     width: 100%;
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-sm);
   }
-  .page { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .tree-active { background: var(--color-muted); }
+  .tree-actions { margin-top: auto; display: flex; flex-direction: column; gap: var(--space-sm); }
+  .btn-secondary {
+    background: transparent;
+    color: var(--color-foreground);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-sm) var(--space-md);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-secondary.danger { color: var(--color-destructive); border-color: var(--color-destructive); }
+  .page { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow-y: auto; }
+  .empty { color: var(--color-muted-foreground); padding: var(--space-lg); }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .dot-online { background: var(--color-state-online); }
   .badge {

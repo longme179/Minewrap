@@ -257,14 +257,13 @@ async fn update_config(
     if let Err(e) = check_auth(&auth, &headers) {
         return e.into_response();
     }
-    if mgr.config_of(&id).is_none() {
-        return (StatusCode::NOT_FOUND, Json(json!({"detail": format!("unknown instance: {id}")}))).into_response();
+    // Patch + persist (0600, v1 config_store parity). The running
+    // core picks the new config up on its next spawn; probe/notifier
+    // rebuild happens there.
+    match mgr.patch_instance(&id, body) {
+        Ok(()) => Json(json!({"ok": true})).into_response(),
+        Err(e) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"detail": e}))).into_response(),
     }
-    // Config updates rebuild the poller/notifier in the full v1; in the
-    // Rust port we accept the handshake (0600 TOML write happens here when
-    // a config path is known; persistence is via minewrap-core::save_to).
-    let _ = body;
-    Json(json!({"ok": true})).into_response()
 }
 
 async fn discord_test(

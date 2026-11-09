@@ -97,12 +97,75 @@ export interface NodeInput {
   token: string;
 }
 
+export interface InstanceInput {
+  id: string;
+  name?: string;
+  work_dir: string;
+  java_path?: string;
+  jvm_args?: string[];
+  launch_args?: string[];
+  autostart?: boolean;
+}
+
+export interface ConfigView {
+  id: string;
+  name: string;
+  work_dir: string;
+  java_path: string;
+  jvm_args: string[];
+  launch_args: string[];
+  autostart: boolean;
+  probe: {
+    host: string;
+    port: number;
+    query_enabled: boolean;
+    timeout: number;
+  };
+  restart: {
+    policy: string;
+    max_retries: number;
+    backoff_base_seconds: number;
+    backoff_max_seconds: number;
+    reset_after_online_seconds: number;
+  };
+  discord: {
+    enabled: boolean;
+    webhook_set: boolean;
+    mode: string;
+    interval_seconds: number;
+    first_push_delay_seconds: number;
+    log_lines: number;
+    max_log_chars: number;
+    state_change_posts: boolean;
+    state_change_debounce_seconds: number;
+    redact_regexes: string[];
+  };
+  [key: string]: unknown;
+}
+
+export interface ConfigPatch {
+  name?: string;
+  work_dir?: string;
+  java_path?: string;
+  jvm_args?: string[];
+  launch_args?: string[];
+  autostart?: boolean;
+  probe?: Partial<ConfigView["probe"]> & Record<string, unknown>;
+  restart?: Partial<ConfigView["restart"]> & Record<string, unknown>;
+  discord?: Partial<ConfigView["discord"]> & { webhook_url?: string };
+  [key: string]: unknown;
+}
+
 export interface IpcAdapter {
   listNodes(): Promise<NodeSummary[]>;
   addNode(input: NodeInput): Promise<NodeSummary>;
   removeNode(nodeId: NodeId): Promise<Action>;
   updateNode?(nodeId: NodeId, input: NodeInput): Promise<NodeSummary>;
   listInstances(nodeId: NodeId): Promise<InstanceSummary[]>;
+  addInstance(input: InstanceInput): Promise<Action>;
+  removeInstance(nodeId: NodeId, instanceId: string): Promise<Action>;
+  getConfig(nodeId: NodeId, instanceId: string): Promise<ConfigView>;
+  updateConfig(nodeId: NodeId, instanceId: string, patch: ConfigPatch): Promise<Action>;
   getSnapshot(nodeId: NodeId, instanceId: string): Promise<SnapshotDto>;
   instanceStart(nodeId: NodeId, instanceId: string): Promise<Action>;
   instanceStop(nodeId: NodeId, instanceId: string): Promise<Action>;

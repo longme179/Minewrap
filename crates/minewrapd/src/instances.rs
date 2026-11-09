@@ -104,6 +104,53 @@ impl InstanceManager {
             .map(|m| m.config.clone())
     }
 
+    /// Patch the in-memory config + the TOML file next to it.
+    pub fn patch_instance(
+        &self,
+        id: &str,
+        patch: serde_json::Value,
+    ) -> Result<(), String> {
+        // `InstanceManager.daemon` is immutable; patches are applied
+        // to `ManagedInstance.config` then persisted via a cloned
+        // doc. The daemon's TOML is reloaded on restart.
+        let cfg = self.config_of(id).ok_or_else(|| format!("unknown instance: {id}"))?;
+        let mut updated = cfg.clone();
+        // Merge into a json doc for core::patch_instance reuse.
+        let mut doc = serde_json::json!({
+            "name": updated.name,
+            "work_dir": updated.work_dir,
+            "java_path": updated.java_path,
+            "jvm_args": updated.jvm_args,
+            "launch_args": updated.launch_args,
+            "autostart": updated.autostart,
+            "probe": serde_json::to_value(&updated.probe).unwrap_or(serde_json::json!({})),
+            "restart": serde_json::to_value(&updated.restart).unwrap_or(serde_json::json!({})),
+            "discord": serde_json::to_value(&updated.discord).unwrap_or(serde_json::json!({})),
+        });
+        for (k, v) in patch.as_object().cloned().unwrap_or_default() {
+            doc[&k] = v;
+        }
+        let mut daemon = self.daemon.clone();
+        daemon.patch_instance(id, doc)?;
+        updated = daemon
+            .instances
+            .iter()
+            .find(|c| c.id == id)
+            .cloned()
+            .ok_or_else(|| format!("unknown instance: {id}"))?;
+
+        {
+            let mut guard = self
+                .instances
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(m) = guard.get_mut(id) {
+                m.config = updated;
+            }
+        }
+        Ok(())
+    }
+
     pub fn summary_of(&self, id: &str) -> Option<minewrap_core::InstanceSummary> {
         let guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
         guard.get(id).map(|m| m.state.summary())

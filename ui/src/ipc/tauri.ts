@@ -9,7 +9,10 @@ import { listen } from "@tauri-apps/api/event";
 
 import type {
   Action,
+  ConfigPatch,
+  ConfigView,
   DiscordTestResponse,
+  InstanceInput,
   InstanceSummary,
   IpcAdapter,
   LogBatch,
@@ -38,6 +41,22 @@ export class TauriIpcAdapter implements IpcAdapter {
 
   async listInstances(nodeId: NodeId): Promise<InstanceSummary[]> {
     return invoke<InstanceSummary[]>("list_instances", { nodeId });
+  }
+
+  async addInstance(input: InstanceInput): Promise<Action> {
+    return invoke<Action>("add_instance", { config: input });
+  }
+
+  async removeInstance(nodeId: NodeId, instanceId: string): Promise<Action> {
+    return invoke<Action>("remove_instance", { nodeId, instanceId });
+  }
+
+  async getConfig(nodeId: NodeId, instanceId: string): Promise<ConfigView> {
+    return invoke<ConfigView>("get_config", { nodeId, instanceId });
+  }
+
+  async updateConfig(nodeId: NodeId, instanceId: string, patch: ConfigPatch): Promise<Action> {
+    return invoke<Action>("update_config", { nodeId, instanceId, patch });
   }
 
   async getSnapshot(nodeId: NodeId, instanceId: string): Promise<SnapshotDto> {

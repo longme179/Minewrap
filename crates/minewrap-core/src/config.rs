@@ -595,6 +595,144 @@ impl DaemonConfig {
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
         Ok(())
     }
+
+    /// Instance config views: secrets masked (`webhook_set: bool`),
+    /// never the webhook URL.
+    pub fn instance_view(&self, id: &str) -> serde_json::Value {
+        let cfg = match self.instances.iter().find(|c| c.id == id) {
+            Some(c) => c,
+            None => return serde_json::json!({"id": id, "not_found": true}),
+        };
+        serde_json::json!({
+            "id": cfg.id,
+            "name": cfg.display_name(),
+            "work_dir": cfg.work_dir,
+            "java_path": cfg.java_path,
+            "jvm_args": cfg.jvm_args,
+            "launch_args": cfg.launch_args,
+            "autostart": cfg.autostart,
+            "probe": cfg.probe,
+            "restart": cfg.restart,
+            "rcon": cfg.rcon,
+            "discord": {
+                "enabled": cfg.discord.enabled,
+                "webhook_set": cfg.discord.webhook_set(),
+                "mode": cfg.discord.mode,
+                "interval_seconds": cfg.discord.interval_seconds,
+                "first_push_delay_seconds": cfg.discord.first_push_delay_seconds,
+                "log_lines": cfg.discord.log_lines,
+                "max_log_chars": cfg.discord.max_log_chars,
+                "state_change_posts": cfg.discord.state_change_posts,
+                "state_change_debounce_seconds": cfg.discord.state_change_debounce_seconds,
+                "redact_regexes": cfg.discord.redact_regexes,
+            },
+        })
+    }
+
+    /// Patch one instance (masked writes; `webhook_url` is write-only),
+    /// persist + validate. Callers get 422-safe errors here.
+    pub fn patch_instance(
+        &mut self,
+        id: &str,
+        patch: serde_json::Value,
+    ) -> Result<(), String> {
+        let inst = self
+            .instances
+            .iter_mut()
+            .find(|c| c.id == id)
+            .ok_or_else(|| format!("unknown instance: {id}"))?;
+
+        if let Some(v) = patch.get("name").and_then(|v| v.as_str()) {
+            if !v.trim().is_empty() {
+                inst.name = v.trim().to_string();
+            }
+        }
+        if let Some(v) = patch.get("work_dir").and_then(|v| v.as_str()) {
+            if !v.trim().is_empty() {
+                inst.work_dir = v.trim().to_string();
+            }
+        }
+        if let Some(v) = patch.get("java_path").and_then(|v| v.as_str()) {
+            if !v.trim().is_empty() {
+                inst.java_path = v.trim().to_string();
+            }
+        }
+        if let Some(v) = patch.get("jvm_args").and_then(|v| v.as_array()) {
+            inst.jvm_args = v
+                .iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect();
+        }
+        if let Some(v) = patch.get("launch_args").and_then(|v| v.as_array()) {
+            let args: Vec<String> = v
+                .iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect();
+            if !args.is_empty() {
+                inst.launch_args = args;
+            }
+        }
+        if let Some(v) = patch.get("autostart").and_then(|v| v.as_bool()) {
+            inst.autostart = v;
+        }
+        if let Some(d) = patch.get("probe").and_then(|v| v.as_object()) {
+            for (k, v) in d {
+                match k.as_str() {
+                    "host" => inst.probe.host = v.as_str().unwrap_or("").to_string(),
+                    "port" => inst.probe.port = v.as_u64().unwrap_or(25565) as u16,
+                    "query_enabled" => inst.probe.query_enabled = v.as_bool().unwrap_or(false),
+                    "timeout" => inst.probe.timeout = v.as_f64().unwrap_or(3.0).max(0.1),
+                    _ => {}
+                }
+            }
+        }
+        if let Some(d) = patch.get("restart").and_then(|v| v.as_object()) {
+            for (k, v) in d {
+                match k.as_str() {
+                    "policy" => inst.restart.policy = v.as_str().unwrap_or("").to_string(),
+                    "max_retries" => inst.restart.max_retries = v.as_u64().unwrap_or(5) as u32,
+                    "backoff_base_seconds" => inst.restart.backoff_base_seconds = v.as_f64().unwrap_or(5.0).max(0.1),
+                    "backoff_max_seconds" => inst.restart.backoff_max_seconds = v.as_f64().unwrap_or(300.0).max(0.1),
+                    "reset_after_online_seconds" => inst.restart.reset_after_online_seconds = v.as_f64().unwrap_or(600.0).max(0.1),
+                    _ => {}
+                }
+            }
+        }
+        if let Some(d) = patch.get("discord").and_then(|v| v.as_object()) {
+            for (k, v) in d {
+                match k.as_str() {
+                    "enabled" => inst.discord.enabled = v.as_bool().unwrap_or(false),
+                    "webhook_url" => {
+                        if let Some(w) = v.as_str() {
+                            if !w.trim().is_empty() {
+                                inst.discord.webhook_url = Some(w.trim().to_string());
+                            }
+                        }
+                    }
+                    "mode" => inst.discord.mode = v.as_str().unwrap_or("").to_string(),
+                    "interval_seconds" => inst.discord.interval_seconds = v.as_f64().unwrap_or(600.0).max(0.1),
+                    "first_push_delay_seconds" => inst.discord.first_push_delay_seconds = v.as_f64().unwrap_or(10.0).max(0.0),
+                    "log_lines" => inst.discord.log_lines = v.as_u64().unwrap_or(15) as usize,
+                    "max_log_chars" => inst.discord.max_log_chars = v.as_u64().unwrap_or(1500) as usize,
+                    "state_change_posts" => inst.discord.state_change_posts = v.as_bool().unwrap_or(true),
+                    "state_change_debounce_seconds" => inst.discord.state_change_debounce_seconds = v.as_f64().unwrap_or(30.0).max(0.0),
+                    "redact_regexes" => {
+                        if let Some(arr) = v.as_array() {
+                            inst.discord.redact_regexes = arr
+                                .iter()
+                                .filter_map(|x| x.as_str().map(String::from))
+                                .collect();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        inst.validate()?;
+        self.validate()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

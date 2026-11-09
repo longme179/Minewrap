@@ -1,9 +1,11 @@
 <!-- Dashboard / instance view: status strip, lifecycle actions, tabbed
-  Console / Properties / Mods / Notifications. Buttons are disabled in
-  the offline/unauthorised/incompatible states with a labelled icon + text
-  (never colour-only) and `role="status"` messages. -->
+  Console / Settings / Properties / Mods / Notifications. Buttons are
+  disabled in the offline/unauthorised/incompatible states with a
+  labelled icon + text (never colour-only) and `role="status"`
+  messages. -->
 <script lang="ts">
   import Console from "./Console.svelte";
+  import Settings from "./Settings.svelte";
   import Properties from "./Properties.svelte";
   import Mods from "./Mods.svelte";
 
@@ -18,23 +20,36 @@
       probe_ok: boolean;
     } | null;
     nodeState?: string;
+    nodeId?: string;
+    instanceId?: string;
+    tab?: string;
     onStart?: () => void;
     onStop?: () => void;
     onRestart?: () => void;
+    onTabChange?: (tab: string) => void;
   }
 
   let {
     snapshot = null,
     nodeState = "connected",
+    nodeId = "local",
+    instanceId = "survival",
+    tab = $bindable("console"),
     onStart = () => {},
     onStop = () => {},
     onRestart = () => {},
+    onTabChange = () => {},
   }: DashboardProps = $props();
 
   const stateLabel = $derived(snapshot?.combined_state ?? "unknown");
   const disabled = $derived(
     nodeState === "offline" || nodeState === "unauthorised" || nodeState === "incompatible"
   );
+
+  function select(t: string) {
+    tab = t;
+    onTabChange(t);
+  }
 </script>
 
 <section aria-label="Dashboard" class="dashboard">
@@ -59,16 +74,26 @@
   </div>
 
   <nav aria-label="Instance tabs" class="tabs">
-    <button type="button" role="tab" aria-selected="true" class="tab tab-active">Console</button>
-    <button type="button" role="tab" aria-selected="false" class="tab" disabled>Properties</button>
-    <button type="button" role="tab" aria-selected="false" class="tab" disabled>Mods</button>
-    <button type="button" role="tab" aria-selected="false" class="tab" disabled>Notifications</button>
+    <button type="button" role="tab" aria-selected={tab === "console"} class="tab" class:tab-active={tab === "console"} onclick={() => select("console")}>Console</button>
+    <button type="button" role="tab" aria-selected={tab === "settings"} class="tab" class:tab-active={tab === "settings"} onclick={() => select("settings")}>Settings</button>
+    <button type="button" role="tab" aria-selected={tab === "properties"} class="tab" class:tab-active={tab === "properties"} onclick={() => select("properties")}>Properties</button>
+    <button type="button" role="tab" aria-selected={tab === "mods"} class="tab" class:tab-active={tab === "mods"} onclick={() => select("mods")}>Mods</button>
+    <button type="button" role="tab" aria-selected={tab === "notifications"} class="tab" class:tab-active={tab === "notifications"} onclick={() => select("notifications")}>Notifications</button>
   </nav>
 
   <div class="tab-panels">
-    <Console />
-    <Properties />
-    <Mods />
+    {#if tab === "console"}
+      <Console />
+    {:else if tab === "settings"}
+      <Settings {nodeId} {instanceId} />
+    {:else if tab === "properties"}
+      <Properties {nodeId} {instanceId} />
+    {:else if tab === "mods"}
+      <Mods {nodeId} {instanceId} />
+    {:else if tab === "notifications"}
+      <!-- Notifications fragment kept for Settings → Notifications flow -->
+      <p class="hint">Discord settings are part of Settings → Notifications below.</p>
+    {/if}
   </div>
 </section>
 
@@ -131,4 +156,5 @@
   .tab:disabled { opacity: 0.5; cursor: not-allowed; }
   .tab-panels { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .tab-panels > :global(*) { flex: 1; min-height: 0; }
+  .hint { color: var(--color-muted-foreground); padding: var(--space-md); }
 </style>
