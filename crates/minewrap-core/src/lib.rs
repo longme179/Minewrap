@@ -10,6 +10,8 @@ pub mod config;
 pub mod discard;
 pub mod discord;
 pub mod events;
+pub mod java;
+pub mod launch;
 pub mod logs;
 pub mod mods;
 pub mod poller;
@@ -22,6 +24,8 @@ pub use config::{
 };
 pub use discord::{Notifier, build_state_change_embed, build_status_embed};
 pub use events::{Event, EventBus, EventBus as EventBusT, LogLineEvent, RestartLoopEvent, StateChange};
+pub use java::{JavaRuntime, detect_all, min_java_for_minecraft};
+pub use launch::{LaunchCandidate, LaunchKind, WorkDirReport, inspect_jar, report_work_dir, scan_work_dir, suggested_for_mode};
 pub use logs::{LogBuffer, LogLine, LogLineBatch, RotatingFile};
 pub use poller::{InstanceSnapshot, InstanceState, InstanceSummary, ProbeInfo, Poller, probe_once};
 pub use process::{Control, OwnerHandle, ProcessError, ProcessManager, ProcessState, ProcessStatus, spawn_reader, spawn_server};

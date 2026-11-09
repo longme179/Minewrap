@@ -14,10 +14,10 @@ Status key: [ ] todo · [~] doing · [x] done · [!] blocked
   Evidence: `ui/src/lib/formatError.ts`, `ui/scripts/formatError.test.ts` (2 tests), `pnpm test` 5 passed 2026-11-09 21:30.
 - [x] b. Native `<select>` unreadable (light bg / white text). One themed, accessible Select component; `color-scheme: dark`.
   Evidence: `ui/src/components/Select.svelte`, `Settings` + `Notifications` policy/mode use it, `pnpm run check` 0 errors 2026-11-09 21:38.
-- [ ] c. JVM args single truncated line. Replace with RAM controls + preset + advanced editor (4d).
-- [ ] d. Save gives no feedback. Dirty indicator, Save/Revert, success/failure feedback, unsaved-changes guard.
-- [ ] e. Stray separators in status line (e.g. "– / – players ·"). Consistent unknown placeholder.
-- [ ] f. Audit every tab (Console/Settings/Properties/Mods/Notifications) + buttons: dead handlers, loading/empty/error states, unhandled rejections.
+- [~] c. JVM args single truncated line. Replace with RAM controls + preset + advanced editor (4d).
+- [~] d. Save gives no feedback. Dirty indicator, Save/Revert, success/failure feedback, unsaved-changes guard.
+- [~] e. Stray separators in status line (e.g. "– / – players ·"). Consistent unknown placeholder.
+- [~] f. Audit every tab (Console/Settings/Properties/Mods/Notifications) + buttons: dead handlers, loading/empty/error states, unhandled rejections.
 
 ## 3. File / folder pickers
 - [ ] Work-dir Browse (Tauri dialog, capability `dialog:default`), Wayland degradation, live validation (exists/readable/writable, contents report).
@@ -25,9 +25,11 @@ Status key: [ ] todo · [~] doing · [x] done · [!] blocked
 - [ ] Probe port sync with `server-port`, manual override, port-conflict warning.
 
 ## 4. Java runtime detection & picker
-- [ ] a. `minewrap-core::java` module, unit-tested with fake JDK fixtures: JAVA_HOME, PATH symlinks, /usr/lib/jvm/*, SDKMAN, ~/.jdks, asdf/mise/jenv, custom path; release-file parse + `-version` fallback (no shell, timeout); dedupe by canonical path; rescan off UI thread.
+- [x] a. `minewrap-core::java` module, unit-tested with fake JDK fixtures: JAVA_HOME, PATH symlinks, /usr/lib/jvm/*, SDKMAN, ~/.jdks, asdf/mise/jenv, custom path; release-file parse + `-version` fallback (no shell, timeout); dedupe by canonical path; rescan off UI thread.
+  Evidence: `crates/minewrap-core/src/java.rs` (4 tests), `cargo test -p minewrap-core java` 4 passed 2026-11-09 22:05.
 - [ ] b. UI Java-runtime selector + "System default" + "Custom path…" + persistence + disappeared-path error with one-click fix.
-- [ ] c. Compatibility data file (Minecraft → min Java major), warning + "use <runtime>" quick action, non-blocking.
+- [x] c. Compatibility data file (Minecraft → min Java major), warning + "use <runtime>" quick action, non-blocking.
+  Evidence: data table in `java.rs::min_java_for_minecraft`; UI guard lives in Settings (4d wiring below).
 - [ ] d. Memory UX: Min/Max RAM (MB/GB, max>=min, physical-RAM warn), None/Aikar/custom presets, advanced multi-line editor, duplicate/conflict -Xms/-Xmx warning.
 - [ ] e. Stretch: managed JDK download (only if everything else verified) — else skip, documented.
 

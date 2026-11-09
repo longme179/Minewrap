@@ -215,6 +215,8 @@ fn main() {
             commands::update_config,
             commands::add_instance,
             commands::remove_instance,
+            commands::detect_java,
+            commands::scan_launch,
             commands::read_properties,
             commands::write_properties,
             commands::list_mods,

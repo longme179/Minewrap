@@ -15,6 +15,8 @@ import type {
   InstanceInput,
   InstanceSummary,
   IpcAdapter,
+  JavaRuntime,
+  LaunchScan,
   LogBatch,
   LogLine,
   ModDto,
@@ -45,6 +47,14 @@ export class TauriIpcAdapter implements IpcAdapter {
 
   async addInstance(input: InstanceInput): Promise<Action> {
     return invoke<Action>("add_instance", { config: input });
+  }
+
+  async detectJava(): Promise<JavaRuntime[]> {
+    return invoke<JavaRuntime[]>("detect_java");
+  }
+
+  async scanLaunch(nodeId: NodeId, workDir: string): Promise<LaunchScan> {
+    return invoke<LaunchScan>("scan_launch", { nodeId, workDir });
   }
 
   async removeInstance(nodeId: NodeId, instanceId: string): Promise<Action> {

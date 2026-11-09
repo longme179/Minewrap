@@ -12,6 +12,8 @@ import type {
   InstanceInput,
   InstanceSummary,
   IpcAdapter,
+  JavaRuntime,
+  LaunchScan,
   LogBatch,
   LogLine,
   ModDto,
@@ -79,6 +81,57 @@ export class MockIpcAdapter implements IpcAdapter {
 
   async addInstance(_input: InstanceInput): Promise<Action> {
     return { ok: true, detail: "instance added" };
+  }
+
+  async detectJava(): Promise<JavaRuntime[]> {
+    return [
+      {
+        home: "/usr/lib/jvm/temurin-21",
+        binary: "/usr/lib/jvm/temurin-21/bin/java",
+        major: 21,
+        full_version: "21.0.2",
+        vendor: "Eclipse Adoptium",
+        arch: "x86_64",
+        source: "system",
+        is_jdk: true,
+      },
+      {
+        home: "/usr/lib/jvm/openjdk-17",
+        binary: "/usr/lib/jvm/openjdk-17/bin/java",
+        major: 17,
+        full_version: "17.0.9",
+        vendor: "Oracle",
+        arch: "x86_64",
+        source: "PATH",
+        is_jdk: true,
+      },
+    ];
+  }
+
+  async scanLaunch(_nodeId: NodeId, workDir: string): Promise<LaunchScan> {
+    return {
+      candidates: [
+        {
+          path: `${workDir}/server.jar`,
+          kind: "jar",
+          server_type: "Vanilla",
+          mc_version: "1.21.1",
+          suggested_launch_args: ["-jar", "server.jar", "nogui"],
+          min_java: 21,
+        },
+      ],
+      report: {
+        exists: true,
+        readable: true,
+        writable: true,
+        has_server_properties: true,
+        has_eula: true,
+        has_world: true,
+        has_mods: true,
+        jar_candidates: [`${workDir}/server.jar`],
+        notes: [],
+      },
+    };
   }
 
   async removeInstance(_nodeId: NodeId, _instanceId: string): Promise<Action> {

@@ -262,3 +262,36 @@ pub async fn remove_instance(
     state.remove_instance(&instance_id)?;
     Ok(Action { ok: true, detail: Some("instance removed".into()) })
 }
+
+/// Java detection (off-thread in the caller; detection is a fast
+/// scan + release-file parse).
+#[tauri::command]
+pub async fn detect_java() -> Result<Vec<minewrap_core::JavaRuntime>, MinewrapError> {
+    Ok(minewrap_core::detect_all())
+}
+
+/// Work-dir scan (launch candidates + contents report), confined.
+#[tauri::command]
+pub async fn scan_launch(
+    _state: State<'_, Arc<NodeService>>,
+    _node_id: String,
+    work_dir: String,
+) -> Result<serde_json::Value, MinewrapError> {
+    let dir = std::path::PathBuf::from(&work_dir);
+    if !dir.exists() {
+        return Err(MinewrapError::invalid(format!("{} does not exist", dir.to_string_lossy())));
+    }
+    let candidates = minewrap_core::scan_work_dir(&dir);
+    let report = minewrap_core::report_work_dir(&dir);
+    Ok(serde_json::json!({
+        "candidates": candidates.iter().map(|c| serde_json::json!({
+            "path": c.path.to_string_lossy(),
+            "kind": c.kind,
+            "server_type": c.server_type,
+            "mc_version": c.mc_version,
+            "suggested_launch_args": c.suggested_launch_args,
+            "min_java": c.min_java,
+        })).collect::<Vec<_>>(),
+        "report": report,
+    }))
+}

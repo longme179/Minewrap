@@ -107,6 +107,43 @@ export interface InstanceInput {
   autostart?: boolean;
 }
 
+export interface JavaRuntime {
+  home: string;
+  binary: string;
+  major?: number | null;
+  full_version?: string | null;
+  vendor?: string | null;
+  arch?: string | null;
+  source: string;
+  is_jdk: boolean;
+}
+
+export interface LaunchCandidateDto {
+  path: string;
+  kind: string;
+  server_type?: string | null;
+  mc_version?: string | null;
+  suggested_launch_args: string[];
+  min_java?: number | null;
+}
+
+export interface WorkDirReport {
+  exists: boolean;
+  readable: boolean;
+  writable: boolean;
+  has_server_properties: boolean;
+  has_eula: boolean;
+  has_world: boolean;
+  has_mods: boolean;
+  jar_candidates: string[];
+  notes: string[];
+}
+
+export interface LaunchScan {
+  candidates: LaunchCandidateDto[];
+  report: WorkDirReport;
+}
+
 export interface ConfigView {
   id: string;
   name: string;
@@ -164,6 +201,8 @@ export interface IpcAdapter {
   listInstances(nodeId: NodeId): Promise<InstanceSummary[]>;
   addInstance(input: InstanceInput): Promise<Action>;
   removeInstance(nodeId: NodeId, instanceId: string): Promise<Action>;
+  detectJava(): Promise<JavaRuntime[]>;
+  scanLaunch(nodeId: NodeId, workDir: string): Promise<LaunchScan>; 
   getConfig(nodeId: NodeId, instanceId: string): Promise<ConfigView>;
   updateConfig(nodeId: NodeId, instanceId: string, patch: ConfigPatch): Promise<Action>;
   getSnapshot(nodeId: NodeId, instanceId: string): Promise<SnapshotDto>;
