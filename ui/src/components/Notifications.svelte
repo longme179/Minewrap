@@ -35,8 +35,11 @@
   let saving = $state(false);
   let loaded = $state(false);
 
+  let loadError = $state("");
+
   async function load() {
     try {
+      loadError = "";
       view = await ipc.getConfig(nodeId, instanceId);
       enabled = view.discord.enabled;
       mode = view.discord.mode;
@@ -50,6 +53,7 @@
       webhookSet = view.discord.webhook_set;
       loaded = true;
     } catch (e) {
+      loadError = formatError(e);
       result = formatError(e);
     }
   }
@@ -96,7 +100,10 @@
   }
 
   $effect(() => {
-    if (!loaded && view === null) {
+    void nodeId;
+    void instanceId;
+    loaded = false;
+    if (view === null) {
       void load();
     }
   });
@@ -105,8 +112,11 @@
 <section aria-label="Discord notifications" class="discord">
   <h2>Discord</h2>
 
-  {#if !loaded}
+  {#if !loaded && !loadError}
     <p role="status" class="hint">Loading…</p>
+  {:else if loadError}
+    <p role="alert" class="error">{loadError}</p>
+    <button type="button" class="btn-secondary" onclick={load}>Retry</button>
   {:else}
     <form class="form" onsubmit={(e) => e.preventDefault()}>
       <fieldset>
@@ -236,4 +246,5 @@
   }
   .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
   .result { color: var(--color-muted-foreground); font-size: 12px; }
+  .error { color: var(--color-destructive); font-size: 12px; }
 </style>

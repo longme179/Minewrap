@@ -20,7 +20,14 @@
   let status = $state("");
 
   async function load() {
-    mods = await ipc.listMods(nodeId, instanceId);
+    try {
+      status = "";
+      confirming = null;
+      mods = await ipc.listMods(nodeId, instanceId);
+    } catch (e) {
+      status = formatError(e);
+      mods = [];
+    }
   }
 
   const filtered = $derived(
@@ -28,7 +35,7 @@
   );
 
   async function toggle(m: ModDto) {
-    if (!m.enabled && confirming !== m.name) {
+    if (m.enabled && confirming !== m.name) {
       confirming = m.name;
       return;
     }
@@ -36,9 +43,7 @@
     try {
       await ipc.toggleMod(nodeId, instanceId, m.name);
       status = `${m.name} ${m.enabled ? "disabled" : "enabled"}.`;
-      mods = mods.map((x) =>
-        x.name === m.name ? { ...x, enabled: !m.enabled } : x
-      );
+      await load();
     } catch (e) {
       status = formatError(e);
     }
@@ -56,7 +61,11 @@
     return `${v.toFixed(1)} ${units[i]}`;
   }
 
-  load();
+  $effect(() => {
+    void nodeId;
+    void instanceId;
+    void load();
+  });
 </script>
 
 <section aria-label="Mods" class="mods">

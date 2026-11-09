@@ -62,6 +62,8 @@
   }
 
   $effect(() => {
+    void nodeId;
+    void instanceId;
     void load();
   });
 </script>

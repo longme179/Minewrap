@@ -105,6 +105,14 @@ pub const BATCH_MAX_LINES: usize = 100;
 /// Spawn the fake/real server and return `(child)`. The piped stdout/stderr
 /// are copied into one bounded channel; the reader task is owned by the caller.
 pub async fn spawn_server(config: &InstanceConfig) -> Result<(Child, mpsc::Receiver<String>), String> {
+    let work_dir = Path::new(&config.work_dir);
+    if !work_dir.exists() {
+        return Err(format!("work dir does not exist: {}", config.work_dir));
+    }
+    if !work_dir.is_dir() {
+        return Err(format!("work dir is not a directory: {}", config.work_dir));
+    }
+
     let argv: Vec<String> = {
         let mut parts = vec![config.java_path.clone()];
         parts.extend(config.jvm_args.iter().cloned());
@@ -113,7 +121,7 @@ pub async fn spawn_server(config: &InstanceConfig) -> Result<(Child, mpsc::Recei
     };
     let mut command = Command::new(&argv[0]);
     command.args(&argv[1..]);
-    command.current_dir(Path::new(&config.work_dir));
+    command.current_dir(work_dir);
     command.stdin(Stdio::piped());
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
@@ -121,7 +129,13 @@ pub async fn spawn_server(config: &InstanceConfig) -> Result<(Child, mpsc::Recei
     #[cfg(unix)]
     command.process_group(0);
 
-    let mut child = command.spawn().map_err(|e| e.to_string())?;
+    let mut child = command.spawn().map_err(|e| {
+        format!(
+            "failed to start `{}` in `{}`: {e}",
+            argv.join(" "),
+            config.work_dir
+        )
+    })?;
     let stdout = child.stdout.take().expect("stdout piped");
     let stderr = child.stderr.take().expect("stderr piped");
 
