@@ -93,8 +93,11 @@
       error = "Max RAM must be >= Min RAM.";
       return;
     }
-    if (step < 4) step += 1;
-    else void create();
+    if (step < 4) {
+      step += 1;
+      return;
+    }
+    void create();
   }
 
   function back() {

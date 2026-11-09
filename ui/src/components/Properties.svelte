@@ -21,11 +21,16 @@
   let guardOpen = $state(false);
 
   async function load() {
-    const doc = await ipc.readProperties(nodeId, instanceId);
-    text = doc.text;
-    savedText = doc.text;
-    errors = doc.errors;
-    dirty = false;
+    try {
+      errors = [];
+      const doc = await ipc.readProperties(nodeId, instanceId);
+      text = doc.text;
+      savedText = doc.text;
+      errors = doc.errors ?? [];
+      dirty = false;
+    } catch (e) {
+      errors = [formatError(e)];
+    }
   }
 
   function edit(v: string) {
@@ -56,8 +61,9 @@
     guardOpen = false;
   }
 
-  // Initial load
-  load();
+  $effect(() => {
+    void load();
+  });
 </script>
 
 <section aria-label="server.properties editor" class="props">

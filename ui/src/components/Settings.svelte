@@ -23,6 +23,8 @@
   let error = $state("");
   let status = $state("");
   let saving = $state(false);
+  let loadedFor = $state("");
+  let savedSnapshot = $state("");
 
   let name = $state("");
   let workDir = $state("");
@@ -43,8 +45,26 @@
     reset_after_online_seconds: 600.0,
   });
 
-  async function load() {
+  function snapshot(): string {
+    return JSON.stringify({
+      name, workDir, javaPath, minRamMb, maxRamMb, preset, jvmArgsText,
+      launchMode, launchArgsText, autostart, probe, restart,
+    });
+  }
+
+  const dirty = $derived(loadedFor !== "" && snapshot() !== savedSnapshot);
+
+  async function load(force = false) {
+    const key = `${nodeId}:${instanceId}`;
+    if (!force && key === loadedFor && !dirty) return;
+    if (!force && dirty && loadedFor !== "" && key !== loadedFor) {
+      if (typeof window !== "undefined" && !window.confirm("Discard unsaved settings changes?")) {
+        return;
+      }
+    }
     loading = true;
+    error = "";
+    status = "";
     try {
       view = await ipc.getConfig(nodeId, instanceId);
       name = view.name;
@@ -58,10 +78,18 @@
       autostart = view.autostart;
       probe = { ...view.probe };
       restart = { ...view.restart };
+      loadedFor = key;
+      savedSnapshot = snapshot();
     } catch (e) {
       error = formatError(e);
     } finally {
       loading = false;
+    }
+  }
+
+  function revert() {
+    if (savedSnapshot) {
+      void load(true);
     }
   }
 
@@ -85,6 +113,8 @@
         probe,
         restart,
       });
+      savedSnapshot = snapshot();
+      loadedFor = `${nodeId}:${instanceId}`;
       status = "Saved.";
       onSaved();
     } catch (e) {
@@ -158,14 +188,15 @@
   }
 
   $effect(() => {
-    if (view === null) {
-      void load();
-    }
+    void load();
   });
 </script>
 
 <section aria-label="Settings" class="settings">
-  <h2>Settings</h2>
+  <div class="head">
+    <h2>Settings</h2>
+    <span role="status" class="dirty">{dirty ? "Unsaved changes" : "Saved"}</span>
+  </div>
 
   {#if loading}
     <p role="status" class="hint">Loading…</p>
@@ -258,10 +289,11 @@
         <p role="alert" class="error">{error}</p>
       {/if}
       <div class="actions">
-        <button type="button" class="btn-primary" onclick={save} disabled={saving}>
+        <button type="button" class="btn-primary" onclick={save} disabled={saving || !dirty}>
           {saving ? "Saving…" : "Save"}
         </button>
-        <span role="status" class="status">{status}</span>
+        <button type="button" class="btn-secondary" onclick={revert} disabled={saving || !dirty}>Revert</button>
+        <span role="status" class="status">{dirty ? "Unsaved changes" : status}</span>
       </div>
     </form>
   {/if}
@@ -279,11 +311,15 @@
     height: 100%;
     overflow-y: auto;
   }
+  .head { display: flex; align-items: center; gap: var(--space-md); }
   h2 { font-family: var(--font-mono); font-size: 14px; margin: 0; }
+  .dirty { color: var(--color-muted-foreground); font-size: 12px; }
   .form { display: flex; flex-direction: column; gap: var(--space-lg); max-width: 640px; }
   fieldset { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-md); }
   legend { padding: 0 var(--space-sm); color: var(--color-muted-foreground); font-size: 12px; }
   .row { display: flex; align-items: center; gap: var(--space-md); margin-bottom: var(--space-sm); font-size: 13px; }
+  .row.col { align-items: flex-start; flex-direction: column; }
+  .row > span:first-child { min-width: 140px; flex-shrink: 0; }
   .input {
     background: var(--color-card);
     border: 1px solid var(--color-border);

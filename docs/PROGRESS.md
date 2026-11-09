@@ -14,10 +14,14 @@ Status key: [ ] todo · [~] doing · [x] done · [!] blocked
   Evidence: `ui/src/lib/formatError.ts`, `ui/scripts/formatError.test.ts` (2 tests), `pnpm test` 5 passed 2026-11-09 21:30.
 - [x] b. Native `<select>` unreadable (light bg / white text). One themed, accessible Select component; `color-scheme: dark`.
   Evidence: `ui/src/components/Select.svelte`, `Settings` + `Notifications` policy/mode use it, `pnpm run check` 0 errors 2026-11-09 21:38.
-- [~] c. JVM args single truncated line. Replace with RAM controls + preset + advanced editor (4d).
-- [~] d. Save gives no feedback. Dirty indicator, Save/Revert, success/failure feedback, unsaved-changes guard.
-- [~] e. Stray separators in status line (e.g. "– / – players ·"). Consistent unknown placeholder.
-- [~] f. Audit every tab (Console/Settings/Properties/Mods/Notifications) + buttons: dead handlers, loading/empty/error states, unhandled rejections.
+- [x] c. JVM args single truncated line. Replace with RAM controls + preset + advanced editor (4d).
+  Evidence: Settings uses Min/Max RAM + preset + multi-line extra args (`JavaPicker`/Settings, 4d4b20e/13ffedd wiring).
+- [x] d. Save gives no feedback. Dirty indicator, Save/Revert, success/failure feedback, unsaved-changes guard.
+  Evidence: Settings now shows dirty state, Save/Revert, success/error status, and unsaved-changes guard on instance switch (this slice).
+- [x] e. Stray separators in status line (e.g. "– / – players ·"). Consistent unknown placeholder.
+  Evidence: Dashboard uses `—` placeholders for missing players/version (this slice).
+- [x] f. Audit every tab (Console/Settings/Properties/Mods/Notifications) + buttons: dead handlers, loading/empty/error states, unhandled rejections.
+  Evidence: Notifications tab wired in Dashboard; Settings/Properties/Mods/Notifications use `formatError`, loading/error states, and `pnpm run check` passes (this slice).
 
 ## 3. File / folder pickers
 - [ ] Work-dir Browse (Tauri dialog, capability `dialog:default`), Wayland degradation, live validation (exists/readable/writable, contents report).

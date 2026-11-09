@@ -7,6 +7,7 @@
   import Console from "./Console.svelte";
   import Settings from "./Settings.svelte";
   import Properties from "./Properties.svelte";
+  import Notifications from "./Notifications.svelte";
   import Mods from "./Mods.svelte";
 
   export interface DashboardProps {
@@ -50,6 +51,15 @@
     tab = t;
     onTabChange(t);
   }
+
+  const unknown = "—";
+  const playersText = $derived(
+    snapshot?.players_online != null && snapshot?.players_max != null
+      ? `${snapshot.players_online}/${snapshot.players_max} players`
+      : unknown
+  );
+  const versionText = $derived(snapshot?.version ?? unknown);
+
 </script>
 
 <section aria-label="Dashboard" class="dashboard">
@@ -57,7 +67,7 @@
     <span class="status-dot" data-state={stateLabel} aria-hidden="true"></span>
     <span class="status-text">
       {snapshot
-        ? `${snapshot.name} — ${stateLabel} · ${snapshot.players_online ?? "–"}/${snapshot.players_max ?? "–"} players · ${snapshot.version ?? ""}`
+        ? `${snapshot.name} — ${stateLabel} · ${playersText} · ${versionText}`
         : "No instance selected"}
     </span>
     <span class="actions">
@@ -91,8 +101,7 @@
     {:else if tab === "mods"}
       <Mods {nodeId} {instanceId} />
     {:else if tab === "notifications"}
-      <!-- Notifications fragment kept for Settings → Notifications flow -->
-      <p class="hint">Discord settings are part of Settings → Notifications below.</p>
+      <Notifications {nodeId} {instanceId} />
     {/if}
   </div>
 </section>
@@ -156,5 +165,4 @@
   .tab:disabled { opacity: 0.5; cursor: not-allowed; }
   .tab-panels { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .tab-panels > :global(*) { flex: 1; min-height: 0; }
-  .hint { color: var(--color-muted-foreground); padding: var(--space-md); }
 </style>
