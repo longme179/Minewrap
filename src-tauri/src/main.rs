@@ -139,7 +139,54 @@ async fn spawn_forwarder_future(
                                 "new_state": sc.new_state,
                                 "reason": sc.reason,
                             });
-                            let _ = handle.emit("state:changed", payload);
+                            let _ = handle.emit("state:changed", payload.clone());
+
+                            // Best-effort Discord notification (state change + status post).
+                            if let (Ok(cfg), Ok(snap_dto)) = (svc.config_of(&sc.instance_id), svc.snapshot("local", &sc.instance_id)) {
+                                if cfg.discord.enabled && cfg.discord.webhook_set() {
+                                    let svc2 = svc.clone();
+                                    let sc2 = sc.clone();
+                                    let lines = svc.backfill_logs("local", &sc.instance_id, cfg.discord.log_lines, 0).unwrap_or_default();
+                                    tokio::spawn(async move {
+                                        let snap = minewrap_core::InstanceSnapshot {
+                                            id: snap_dto.id,
+                                            name: snap_dto.name,
+                                            combined_state: snap_dto.combined_state,
+                                            process: minewrap_core::ProcessStatus {
+                                                state: match snap_dto.process_state.as_str() {
+                                                    "online" => minewrap_core::ProcessState::Online,
+                                                    "starting" => minewrap_core::ProcessState::Starting,
+                                                    "stopping" => minewrap_core::ProcessState::Stopping,
+                                                    "crashed" => minewrap_core::ProcessState::Crashed,
+                                                    _ => minewrap_core::ProcessState::Offline,
+                                                },
+                                                pid: None,
+                                                started_at: None,
+                                                stopped_at: None,
+                                                exit_code: None,
+                                                requested_stop: false,
+                                                forced_stop: false,
+                                                restart_count: 0,
+                                                crash_count: 0,
+                                                uptime_seconds: None,
+                                            },
+                                            probe: minewrap_core::ProbeInfo::default(),
+                                            updated_at: chrono::Utc::now(),
+                                        };
+                                        let notifier = minewrap_core::Notifier::new(
+                                            cfg.discord.clone(),
+                                            reqwest::Client::new(),
+                                            svc2.data_dir().join("discord"),
+                                            cfg.id.clone(),
+                                        );
+                                        if cfg.discord.state_change_posts {
+                                            let embed = minewrap_core::build_state_change_embed(&snap, &sc2.old_state, &sc2.new_state, &sc2.reason);
+                                            let _ = notifier.request(&format!("{}?wait=true", notifier.webhook()), "POST", &embed).await;
+                                        }
+                                        let _ = notifier.push_status(&snap, &lines).await;
+                                    });
+                                }
+                            }
                         }
                         _ => {}
                     }

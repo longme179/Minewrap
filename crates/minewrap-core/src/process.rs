@@ -224,17 +224,17 @@ pub fn spawn_reader(
     tokio::spawn(async move {
         while let Some(line) = rx.recv().await {
             let text = truncate_line(&line, MAX_LINE_BYTES);
-            let entry = crate::logs::parse_line(0, Utc::now(), &text);
-            {
+            let ts = Utc::now();
+            let stored = {
                 let mut b = match buffer.lock() {
                     Ok(b) => b,
                     Err(p) => p.into_inner(),
                 };
-                b.append(entry.line.clone(), entry.ts);
-            }
+                b.append(text.trim_end_matches(['\r', '\n']).to_string(), ts)
+            };
             bus.publish(&Event::LogLine(crate::events::LogLineEvent {
                 instance_id: instance_id.clone(),
-                line: entry,
+                line: stored,
             }));
         }
     })

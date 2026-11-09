@@ -56,6 +56,13 @@ pub struct NodeService {
 }
 
 impl NodeService {
+    pub fn data_dir(&self) -> std::path::PathBuf {
+        let daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
+        std::path::PathBuf::from(&daemon.daemon.data_dir)
+    }
+}
+
+impl NodeService {
     pub fn load(config_path: &str) -> Result<Self, MinewrapError> {
         let daemon = DaemonConfig::load_from(config_path)
             .map_err(|e| MinewrapError::invalid(format!("config: {e}")))?;
