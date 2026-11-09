@@ -294,13 +294,22 @@ fn main() {
                 let svc = svc_for_run.clone();
                 let handle = app_handle.clone();
                 std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build();
-                    if let Ok(rt) = rt {
-                        rt.block_on(async move {
-                            svc.stop_all_local().await;
-                        });
+                    let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build();
+                        if let Ok(rt) = rt {
+                            rt.block_on(async move {
+                                let _ = tokio::time::timeout(
+                                    std::time::Duration::from_secs(8),
+                                    svc.stop_all_local(),
+                                )
+                                .await;
+                            });
+                        }
+                    }));
+                    if ok.is_err() {
+                        eprintln!("minewrap: cleanup panicked during exit");
                     }
                     handle.exit(0);
                 });

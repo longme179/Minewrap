@@ -792,18 +792,46 @@ impl NodeService {
     }
 
     /// Stop all local instances best-effort (used on GUI exit).
+    /// Tries graceful stop, then forces shutdown so no processes remain.
     pub async fn stop_all_local(&self) {
-        let ids: Vec<String> = self.with_inner(|inner| {
-            inner
-                .instances
-                .get(LOCAL_NODE_ID)
-                .map(|m| m.keys().cloned().collect())
-                .unwrap_or_default()
-        });
-        for id in ids {
-            let _ = self.stop(LOCAL_NODE_ID, &id).await;
+        let ids_and_txs: Vec<(String, Option<tokio::sync::mpsc::Sender<Control>>)> =
+            self.with_inner(|inner| {
+                inner
+                    .instances
+                    .get(LOCAL_NODE_ID)
+                    .map(|m| {
+                        m.iter()
+                            .map(|(id, rt)| (id.clone(), rt.handle.as_ref().map(|h| h.ctrl_tx.clone())))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            });
+        // Request graceful stop first.
+        for (_id, tx) in &ids_and_txs {
+            if let Some(tx) = tx {
+                let _ = tx.send(Control::Stop).await;
+            }
         }
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        // Force shutdown to kill remaining child process groups.
+        let txs: Vec<Option<tokio::sync::mpsc::Sender<Control>>> =
+            self.with_inner(|inner| {
+                inner
+                    .instances
+                    .get(LOCAL_NODE_ID)
+                    .map(|m| {
+                        m.values()
+                            .map(|rt| rt.handle.as_ref().map(|h| h.ctrl_tx.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            });
+        for tx in txs {
+            if let Some(tx) = tx {
+                let _ = tx.send(Control::Shutdown).await;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
         self.with_inner(|inner| {
             if let Some(map) = inner.instances.get_mut(LOCAL_NODE_ID) {
                 for rt in map.values_mut() {
