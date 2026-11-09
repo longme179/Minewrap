@@ -408,40 +408,46 @@ impl NodeService {
     }
 
     /// Write-only patch; persists via the TOML store (0600).
-    pub fn patch_instance(
+    pub async fn patch_instance(
         &self,
         instance_id: &str,
         patch: serde_json::Value,
     ) -> Result<bool, MinewrapError> {
-        // Patch the in-memory config (the source of truth for the
-        // running core), then persist it.
-        let mut updated = self.config_of(instance_id)?;
-        let mut doc = serde_json::json!({
-            "name": updated.name,
-            "work_dir": updated.work_dir,
-            "java_path": updated.java_path,
-            "jvm_args": updated.jvm_args,
-            "launch_args": updated.launch_args,
-            "autostart": updated.autostart,
-            "probe": serde_json::to_value(&updated.probe).unwrap_or(serde_json::json!({})),
-            "restart": serde_json::to_value(&updated.restart).unwrap_or(serde_json::json!({})),
-            "discord": serde_json::to_value(&updated.discord).unwrap_or(serde_json::json!({})),
-        });
-        // Shallow-merge the outer keys, let `patch_instance` in core
-        // validate Discord/probe/restart sub-objects.
-        for (k, v) in patch.as_object().cloned().unwrap_or_default() {
-            doc[&k] = v;
-        }
-        let mut daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
-        daemon
-            .patch_instance(instance_id, doc)
-            .map_err(MinewrapError::invalid)?;
-        updated = daemon
-            .instances
-            .iter()
-            .find(|c| c.id == instance_id)
-            .cloned()
-            .ok_or_else(|| MinewrapError::gone(format!("instance {instance_id} not found")))?;
+        let updated = {
+            let mut current_doc = {
+                let current = self.config_of(instance_id)?;
+                serde_json::json!({
+                    "name": current.name,
+                    "work_dir": current.work_dir,
+                    "java_path": current.java_path,
+                    "jvm_args": current.jvm_args,
+                    "launch_args": current.launch_args,
+                    "autostart": current.autostart,
+                    "probe": serde_json::to_value(&current.probe).unwrap_or(serde_json::json!({})),
+                    "restart": serde_json::to_value(&current.restart).unwrap_or(serde_json::json!({})),
+                    "discord": serde_json::to_value(&current.discord).unwrap_or(serde_json::json!({})),
+                })
+            };
+            for (k, v) in patch.as_object().cloned().unwrap_or_default() {
+                current_doc[&k] = v;
+            }
+            let mut daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
+            daemon
+                .patch_instance(instance_id, current_doc)
+                .map_err(MinewrapError::invalid)?;
+            let updated = daemon
+                .instances
+                .iter()
+                .find(|c| c.id == instance_id)
+                .cloned()
+                .ok_or_else(|| MinewrapError::gone(format!("instance {instance_id} not found")))?;
+            if !self.config_path.is_empty() {
+                daemon
+                    .save_to(&self.config_path)
+                    .map_err(MinewrapError::invalid)?;
+            }
+            updated
+        };
 
         let tx = self.ctrl_tx(instance_id).ok();
         self.with_inner(|inner| {
@@ -456,11 +462,6 @@ impl NodeService {
         });
         if let Some(tx) = tx {
             let _ = tx.send(Control::ApplyConfig(updated.clone())).await;
-        }
-        if !self.config_path.is_empty() {
-            daemon
-                .save_to(&self.config_path)
-                .map_err(MinewrapError::invalid)?;
         }
         Ok(true)
     }
