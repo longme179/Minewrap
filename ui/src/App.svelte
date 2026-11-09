@@ -3,11 +3,10 @@
   browser) — see `src/main.ts`. -->
 <script lang="ts">
   import Dashboard from "./components/Dashboard.svelte";
-  import { MockIpcAdapter } from "./ipc/mock.js";
-  import type { IpcAdapter } from "./ipc/mod.js";
+  import { createAdapter } from "./ipc/factory.js";
   import { createConsoleStore } from "./stores/console.js";
 
-  const ipc: IpcAdapter = new MockIpcAdapter();
+  const ipc = createAdapter();
   const store = createConsoleStore();
 
   let nodes = $state<{ id: string; name: string; state: string }[]>([]);

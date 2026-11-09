@@ -2,7 +2,7 @@
   errors. The doc is the Java properties round-trip `PropertiesDocument`;
   unknown keys pass through untouched. -->
 <script lang="ts">
-  import { MockIpcAdapter } from "../ipc/mock.js";
+  import { createAdapter } from "../ipc/factory.js";
 
   interface Props {
     nodeId?: string;
@@ -11,7 +11,7 @@
 
   let { nodeId = "local", instanceId = "survival" }: Props = $props();
 
-  const ipc = new MockIpcAdapter();
+  const ipc = createAdapter();
 
   let text = $state("");
   let savedText = $state("");
@@ -20,10 +20,7 @@
   let guardOpen = $state(false);
 
   async function load() {
-    // Mock adapter ignores node/instance args (void-kept for Tauri)
-    void nodeId;
-    void instanceId;
-    const doc = await ipc.readProperties();
+    const doc = await ipc.readProperties(nodeId, instanceId);
     text = doc.text;
     savedText = doc.text;
     errors = doc.errors;
@@ -37,9 +34,7 @@
 
   async function save() {
     try {
-      void nodeId;
-      void instanceId;
-      await ipc.writeProperties();
+      await ipc.writeProperties(nodeId, instanceId, { text, errors: [] });
       savedText = text;
       dirty = false;
       errors = [];

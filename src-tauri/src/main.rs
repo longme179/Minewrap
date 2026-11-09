@@ -35,13 +35,15 @@ fn spawn_forwarder(
     tokio::spawn(async move {
         use minewrap_core::Event;
         let mut sub = svc.subscribe();
-        let mut pending: Vec<minewrap_core::LogLine> = Vec::new();
+        // pending: (instance_id, lines) per instance so batches carry the
+        // correct instance_id (was previously hardcoded empty).
+        let mut pending: Vec<(String, minewrap_core::LogLine)> = Vec::new();
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(40));
         loop {
             tokio::select! {
                 ev = sub.rx.recv() => {
                     match ev {
-                        Some(Event::LogLine(le)) => pending.push(le.line),
+                        Some(Event::LogLine(le)) => pending.push((le.instance_id.clone(), le.line)),
                         Some(Event::StateChange(sc)) => {
                             let payload = serde_json::json!({
                                 "node_id": "local",
@@ -57,22 +59,25 @@ fn spawn_forwarder(
                 }
                 _ = interval.tick() => {
                     if !pending.is_empty() {
-                        let first = pending.first().map(|l| l.seq).unwrap_or(0);
-                        let last = pending.last().map(|l| l.seq).unwrap_or(0);
-                        // Instance id is the majority topic of the batch.
-                        let instance_id = pending
-                            .first()
-                            .map(|l| l.line.chars().take(0).collect::<String>())
-                            .unwrap_or_default();
-                        let _ = instance_id;
-                        let payload = serde_json::json!({
-                            "node_id": "local",
-                            "lines": pending.clone(),
-                            "first_seq": first,
-                            "last_seq": last,
-                        });
-                        let _ = handle.emit("logs:batch", payload);
-                        pending.clear();
+                        // Split by instance; a single tick can hold lines
+                        // from several servers.
+                        use std::collections::HashMap;
+                        let mut by_instance: HashMap<String, Vec<minewrap_core::LogLine>> = HashMap::new();
+                        for (iid, line) in pending.drain(..) {
+                            by_instance.entry(iid).or_default().push(line);
+                        }
+                        for (instance_id, lines) in by_instance {
+                            let first = lines.first().map(|l| l.seq).unwrap_or(0);
+                            let last = lines.last().map(|l| l.seq).unwrap_or(0);
+                            let payload = serde_json::json!({
+                                "node_id": "local",
+                                "instance_id": instance_id,
+                                "lines": lines,
+                                "first_seq": first,
+                                "last_seq": last,
+                            });
+                            let _ = handle.emit("logs:batch", payload);
+                        }
                     }
                 }
             }

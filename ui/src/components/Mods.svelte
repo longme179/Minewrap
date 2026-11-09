@@ -1,7 +1,7 @@
 <!-- Mods manager: list / search-filter / toggle `.jar <-> .jar.disabled`.
   Disabling requires confirmation; enabling is immediate. -->
 <script lang="ts">
-  import { MockIpcAdapter } from "../ipc/mock.js";
+  import { createAdapter } from "../ipc/factory.js";
   import type { ModDto } from "../ipc/mod.js";
 
   interface Props {
@@ -11,7 +11,7 @@
 
   let { nodeId = "local", instanceId = "survival" }: Props = $props();
 
-  const ipc = new MockIpcAdapter();
+  const ipc = createAdapter();
 
   let mods = $state<ModDto[]>([]);
   let filter = $state("");
@@ -19,9 +19,7 @@
   let status = $state("");
 
   async function load() {
-    void nodeId;
-    void instanceId;
-    mods = await ipc.listMods();
+    mods = await ipc.listMods(nodeId, instanceId);
   }
 
   const filtered = $derived(
@@ -35,9 +33,7 @@
     }
     confirming = null;
     try {
-      void nodeId;
-      void instanceId;
-      await ipc.toggleMod();
+      await ipc.toggleMod(nodeId, instanceId, m.name);
       status = `${m.name} ${m.enabled ? "disabled" : "enabled"}.`;
       mods = mods.map((x) =>
         x.name === m.name ? { ...x, enabled: !m.enabled } : x

@@ -2,7 +2,7 @@
   redaction, send-test result, rate-limit status. Webhook is write-only —
   only `webhook_set` is shown, never the URL. -->
 <script lang="ts">
-  import { MockIpcAdapter } from "../ipc/mock.js";
+  import { createAdapter } from "../ipc/factory.js";
 
   interface Props {
     nodeId?: string;
@@ -11,7 +11,7 @@
 
   let { nodeId = "local", instanceId = "survival" }: Props = $props();
 
-  const ipc = new MockIpcAdapter();
+  const ipc = createAdapter();
 
   let enabled = $state(true);
   let mode = $state("edit-in-place");
@@ -25,9 +25,7 @@
   async function test() {
     sending = true;
     try {
-      void nodeId;
-      void instanceId;
-      const res = await ipc.discordTest();
+      const res = await ipc.discordTest(nodeId, instanceId);
       result = res.ok ? "Test message sent." : `Failed: ${res.error ?? "unknown"}`;
     } catch (e) {
       result = String(e);
