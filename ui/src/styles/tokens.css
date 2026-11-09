@@ -5,6 +5,7 @@
  */
 
 :root {
+  color-scheme: dark;
   --color-primary: #1e293b;
   --color-on-primary: #ffffff;
   --color-secondary: #334155;

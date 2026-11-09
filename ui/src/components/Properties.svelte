@@ -3,6 +3,7 @@
   unknown keys pass through untouched. -->
 <script lang="ts">
   import { createAdapter } from "../ipc/factory.js";
+  import { formatError } from "../lib/formatError.js";
 
   interface Props {
     nodeId?: string;
@@ -39,7 +40,7 @@
       dirty = false;
       errors = [];
     } catch (e) {
-      errors = [String(e)];
+      errors = [formatError(e)];
     }
   }
 

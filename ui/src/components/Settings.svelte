@@ -3,6 +3,7 @@
   write-only (only `webhook_set` is shown). -->
 <script lang="ts">
   import { createAdapter } from "../ipc/factory.js";
+  import { formatError } from "../lib/formatError.js";
   import type { ConfigView } from "../ipc/mod.js";
 
   const ipc = createAdapter();
@@ -49,7 +50,7 @@
       probe = { ...view.probe };
       restart = { ...view.restart };
     } catch (e) {
-      error = String(e);
+      error = formatError(e);
     } finally {
       loading = false;
     }
@@ -73,7 +74,7 @@
       status = "Saved.";
       onSaved();
     } catch (e) {
-      error = String(e);
+      error = formatError(e);
     } finally {
       saving = false;
     }

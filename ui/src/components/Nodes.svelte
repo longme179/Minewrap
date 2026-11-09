@@ -5,6 +5,7 @@
   sent to Rust; Rust stores it in the keyring/0600 store). -->
 <script lang="ts">
   import { createAdapter } from "../ipc/factory.js";
+  import { formatError } from "../lib/formatError.js";
   import type { NodeSummary } from "../ipc/mod.js";
 
   const ipc = createAdapter();
@@ -32,7 +33,7 @@
       newToken = "";
       await load();
     } catch (e) {
-      error = String(e);
+      error = formatError(e);
     }
   }
 
@@ -41,7 +42,7 @@
       await ipc.removeNode(id);
       await load();
     } catch (e) {
-      error = String(e);
+      error = formatError(e);
     }
   }
 

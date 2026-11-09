@@ -4,6 +4,7 @@
   IPC `update_config` command (config 0600). -->
 <script lang="ts">
   import { createAdapter } from "../ipc/factory.js";
+  import { formatError } from "../lib/formatError.js";
   import type { ConfigView } from "../ipc/mod.js";
 
   const ipc = createAdapter();
@@ -48,7 +49,7 @@
       webhookSet = view.discord.webhook_set;
       loaded = true;
     } catch (e) {
-      result = String(e);
+      result = formatError(e);
     }
   }
 
@@ -75,7 +76,7 @@
       result = "Saved.";
       onSaved();
     } catch (e) {
-      result = String(e);
+      result = formatError(e);
     } finally {
       saving = false;
     }
@@ -87,7 +88,7 @@
       const res = await ipc.discordTest(nodeId, instanceId);
       result = res.ok ? "Test message sent." : `Failed: ${res.error ?? "unknown"}`;
     } catch (e) {
-      result = String(e);
+      result = formatError(e);
     } finally {
       sending = false;
     }

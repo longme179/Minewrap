@@ -2,6 +2,7 @@
   ^[a-z0-9][a-z0-9_-]{0,62}[a-z0-9]$ (v1 parity). -->
 <script lang="ts">
   import { createAdapter } from "../ipc/factory.js";
+  import { formatError } from "../lib/formatError.js";
 
   const ipc = createAdapter();
 
@@ -50,7 +51,7 @@
       workDir = "";
       onChanged();
     } catch (e) {
-      error = String(e);
+      error = formatError(e);
     } finally {
       busy = false;
     }

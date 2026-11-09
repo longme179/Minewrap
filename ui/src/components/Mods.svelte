@@ -2,6 +2,7 @@
   Disabling requires confirmation; enabling is immediate. -->
 <script lang="ts">
   import { createAdapter } from "../ipc/factory.js";
+  import { formatError } from "../lib/formatError.js";
   import type { ModDto } from "../ipc/mod.js";
 
   interface Props {
@@ -39,7 +40,7 @@
         x.name === m.name ? { ...x, enabled: !m.enabled } : x
       );
     } catch (e) {
-      status = String(e);
+      status = formatError(e);
     }
   }
 
