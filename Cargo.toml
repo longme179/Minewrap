@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/minewrap-core", "crates/fake-mc-server"]
+members = ["crates/minewrap-core", "crates/fake-mc-server", "src-tauri"]
+exclude = []
 
 [workspace.package]
 version = "0.1.0"
