@@ -50,7 +50,7 @@ pub struct NodeServiceInner {
 pub struct NodeService {
     pub inner: Mutex<NodeServiceInner>,
     pub bus: Arc<EventBus>,
-    pub daemon: DaemonConfig,
+    pub daemon: Mutex<DaemonConfig>,
     pub config_path: String,
 }
 
@@ -62,7 +62,7 @@ impl NodeService {
         let svc = Self {
             inner: Mutex::new(NodeServiceInner::default()),
             bus: bus.clone(),
-            daemon,
+            daemon: Mutex::new(daemon),
             config_path: config_path.to_string(),
         };
 
@@ -79,7 +79,12 @@ impl NodeService {
             );
         });
 
-        let configs = svc.daemon.instances.clone();
+        let configs = svc
+            .daemon
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .instances
+            .clone();
         svc.register_instances(&configs);
         Ok(svc)
     }
@@ -89,7 +94,7 @@ impl NodeService {
             inner: Mutex::new(NodeServiceInner::default()),
             bus,
             config_path: String::new(),
-            daemon,
+            daemon: Mutex::new(daemon),
         };
         svc.with_inner(|inner| {
             inner.nodes.insert(
@@ -103,13 +108,24 @@ impl NodeService {
                 },
             );
         });
-        let configs = svc.daemon.instances.clone();
+        let configs = svc
+            .daemon
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .instances
+            .clone();
         svc.register_instances(&configs);
         svc
     }
 
     fn register_instances(&self, configs: &[InstanceConfig]) {
-        let defaults = self.daemon.daemon.defaults.clone();
+        let (defaults, unresponsive_after_failures) = {
+            let daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                daemon.daemon.defaults.clone(),
+                daemon.daemon.unresponsive_after_failures,
+            )
+        };
         for cfg in configs {
             let buf = Arc::new(Mutex::new(LogBuffer::new(defaults.log_buffer_lines)));
             let mgr = ProcessManager::new(
@@ -123,7 +139,7 @@ impl NodeService {
             let state = InstanceState::new(
                 cfg.id.clone(),
                 cfg.display_name().to_string(),
-                self.daemon.daemon.unresponsive_after_failures,
+                unresponsive_after_failures,
             );
             let rt = InstanceRuntime {
                 id: cfg.id.clone(),
@@ -412,7 +428,7 @@ impl NodeService {
         for (k, v) in patch.as_object().cloned().unwrap_or_default() {
             doc[&k] = v;
         }
-        let mut daemon = self.daemon.clone();
+        let mut daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
         daemon
             .patch_instance(instance_id, doc)
             .map_err(MinewrapError::invalid)?;
@@ -433,9 +449,6 @@ impl NodeService {
                 rt.name = updated.display_name().to_string();
             }
         });
-        // Re-publish: `daemon` on the struct is immutable, so we only
-        // persist `daemon` to the config file. The in-memory
-        // `InstanceRuntime.config` above is what `config_of` returns.
         if !self.config_path.is_empty() {
             daemon
                 .save_to(&self.config_path)
@@ -452,7 +465,13 @@ impl NodeService {
     ) -> Result<bool, MinewrapError> {
         cfg.validate().map_err(MinewrapError::invalid)?;
         let id = cfg.id.clone();
-        let defaults = self.daemon.daemon.defaults.clone();
+        let (defaults, unresponsive_after_failures) = {
+            let daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                daemon.daemon.defaults.clone(),
+                daemon.daemon.unresponsive_after_failures,
+            )
+        };
         let buf = Arc::new(Mutex::new(LogBuffer::new(defaults.log_buffer_lines)));
         let mgr = ProcessManager::new(
             cfg.clone(),
@@ -465,7 +484,7 @@ impl NodeService {
         let state = InstanceState::new(
             cfg.id.clone(),
             cfg.display_name().to_string(),
-            self.daemon.daemon.unresponsive_after_failures,
+            unresponsive_after_failures,
         );
         let rt = InstanceRuntime {
             id: cfg.id.clone(),
@@ -477,8 +496,8 @@ impl NodeService {
             probe: ProbeInfo::default(),
         };
 
-        // Persist: add to a cloned doc and write 0600.
-        let mut daemon = self.daemon.clone();
+        // Persist to the in-memory daemon config and write 0600.
+        let mut daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
         if daemon.instances.iter().any(|c| c.id == id) {
             return Err(MinewrapError::invalid(format!("duplicate instance id: {id:?}")));
         }
@@ -513,7 +532,7 @@ impl NodeService {
         if !removed {
             return Err(MinewrapError::gone(format!("instance {instance_id} not found")));
         }
-        let mut daemon = self.daemon.clone();
+        let mut daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
         daemon.instances.retain(|c| c.id != instance_id);
         if !self.config_path.is_empty() {
             daemon
@@ -649,6 +668,51 @@ impl NodeService {
     /// caller spawns a forwarder that emits `logs:batch` / `state:changed`).
     pub fn subscribe(&self) -> minewrap_core::events::Subscription {
         self.bus.subscribe(minewrap_core::events::WILDCARD)
+    }
+
+    /// Apply a core state-change event to the in-memory runtime so
+    /// snapshots/UI reflect Start/Stop transitions.
+    pub fn update_process_state(&self, instance_id: &str, new_state: &str, reason: &str) {
+        let state = match new_state {
+            "online" => ProcessState::Online,
+            "starting" => ProcessState::Starting,
+            "stopping" => ProcessState::Stopping,
+            "crashed" => ProcessState::Crashed,
+            _ => ProcessState::Offline,
+        };
+        let now = chrono::Utc::now();
+        self.with_inner(|inner| {
+            let Some(rt) = inner
+                .instances
+                .get_mut(LOCAL_NODE_ID)
+                .and_then(|m| m.get_mut(instance_id))
+            else {
+                return;
+            };
+            let mut status = minewrap_core::ProcessStatus {
+                state,
+                pid: None,
+                started_at: rt.state.snapshot().process.started_at,
+                stopped_at: rt.state.snapshot().process.stopped_at,
+                exit_code: rt.state.snapshot().process.exit_code,
+                requested_stop: matches!(state, ProcessState::Stopping),
+                forced_stop: rt.state.snapshot().process.forced_stop,
+                restart_count: rt.state.snapshot().process.restart_count,
+                crash_count: rt.state.snapshot().process.crash_count,
+                uptime_seconds: None,
+            };
+            if matches!(state, ProcessState::Starting | ProcessState::Online) && status.started_at.is_none() {
+                status.started_at = Some(now);
+                status.stopped_at = None;
+            }
+            if matches!(state, ProcessState::Offline | ProcessState::Crashed) {
+                status.stopped_at = Some(now);
+                if reason.contains("requested") {
+                    status.requested_stop = true;
+                }
+            }
+            rt.state.update_process(status);
+        });
     }
 }
 

@@ -6,6 +6,7 @@
   import Wizard from "./components/Wizard.svelte";
   import { createAdapter } from "./ipc/factory.js";
   import { createConsoleStore } from "./stores/console.js";
+  import { formatError } from "./lib/formatError.js";
 
   const ipc = createAdapter();
   const store = createConsoleStore();
@@ -39,14 +40,46 @@
     await store.appendBatch(await ipc.getLogs(selectedNode, selectedInstance, 200));
   }
 
-  async function start() { await ipc.instanceStart(selectedNode, selectedInstance); await loadInstances(); }
-  async function stop() { await ipc.instanceStop(selectedNode, selectedInstance); await loadInstances(); }
-  async function restart() { await ipc.instanceRestart(selectedNode, selectedInstance); await loadInstances(); }
+  let actionError = $state("");
+
+  async function refreshSnapshot() {
+    if (!selectedInstance) return;
+    try {
+      snapshot = await ipc.getSnapshot(selectedNode, selectedInstance);
+      instances = instances.map((i) =>
+        i.id === selectedInstance ? { ...i, combined_state: snapshot?.combined_state ?? i.combined_state } : i
+      );
+    } catch {
+      // ignore transient refresh errors
+    }
+  }
+
+  async function runAction(label: string, fn: () => Promise<unknown>) {
+    actionError = "";
+    try {
+      await fn();
+      await loadInstances();
+      setTimeout(() => void refreshSnapshot(), 400);
+      setTimeout(() => void refreshSnapshot(), 1500);
+    } catch (e) {
+      actionError = `${label} failed: ${formatError(e)}`;
+    }
+  }
+
+  async function start() { await runAction("Start", () => ipc.instanceStart(selectedNode, selectedInstance)); }
+  async function stop() { await runAction("Stop", () => ipc.instanceStop(selectedNode, selectedInstance)); }
+  async function restart() { await runAction("Restart", () => ipc.instanceRestart(selectedNode, selectedInstance)); }
 
   async function remove() {
-    await ipc.removeInstance(selectedNode, selectedInstance);
-    selectedInstance = "";
-    await loadInstances();
+    actionError = "";
+    try {
+      await ipc.removeInstance(selectedNode, selectedInstance);
+      selectedInstance = "";
+      view = "tree";
+      await loadInstances();
+    } catch (e) {
+      actionError = `Remove failed: ${formatError(e)}`;
+    }
   }
 
   function selectInstance(id: string) {
@@ -58,7 +91,20 @@
   $effect(() => {
     store.attach(ipc);
     void load();
-    return () => store.detach();
+    const off = ipc.onStateChanged((ev) => {
+      if (ev.node_id === selectedNode && ev.instance_id === selectedInstance) {
+        void refreshSnapshot();
+      }
+      instances = instances.map((i) =>
+        i.id === ev.instance_id ? { ...i, combined_state: ev.new_state } : i
+      );
+    });
+    const poll = setInterval(() => void refreshSnapshot(), 2000);
+    return () => {
+      store.detach();
+      off();
+      clearInterval(poll);
+    };
   });
 </script>
 
@@ -112,7 +158,12 @@
       </div>
     </nav>
     <section class="page" aria-label="Instance view">
-      {#if selectedInstance}
+      {#if actionError}
+        <p role="alert" class="action-error">{actionError}</p>
+      {/if}
+      {#if view === "add"}
+        <Wizard onChanged={() => { view = "tree"; actionError = ""; void loadInstances(); }} />
+      {:else if selectedInstance}
         <Dashboard
           {snapshot}
           {nodeState}
@@ -123,13 +174,8 @@
           onStop={stop}
           onRestart={restart}
         />
-      {:else if view === "add"}
-        <Wizard onChanged={() => void loadInstances()} />
       {:else}
         <p class="empty">Select an instance, or add one.</p>
-      {/if}
-      {#if view === "add"}
-        <Wizard onChanged={() => { view = "tree"; void loadInstances(); }} />
       {/if}
     </section>
   </div>
@@ -197,6 +243,13 @@
   }
   .btn-secondary.danger { color: var(--color-destructive); border-color: var(--color-destructive); }
   .page { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow-y: auto; }
+  .action-error {
+    margin: var(--space-md) var(--space-lg) 0;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--color-destructive);
+    border-radius: var(--radius-sm);
+    color: var(--color-destructive);
+  }
   .empty { color: var(--color-muted-foreground); padding: var(--space-lg); }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .dot-online { background: var(--color-state-online); }

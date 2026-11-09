@@ -229,6 +229,7 @@ pub fn spawn_reader(
 pub struct OwnerHandle {
     pub owner: tokio::task::JoinHandle<()>,
     pub ctrl_tx: mpsc::Sender<Control>,
+    _runtime_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 /// Manages one instance (owns `Child` + state machine; called by handle).
@@ -290,11 +291,41 @@ impl ProcessManager {
         }
     }
 
-    /// Start the owner task (inside a tokio runtime).
+    /// Start the owner task. Spawns on the current Tokio runtime when
+    /// available; otherwise creates a dedicated runtime thread so the
+    /// desktop app works even when callers don't hold a Tokio context.
     pub fn spawn(self) -> OwnerHandle {
         let ctrl_tx = self.ctrl_tx.clone();
-        let owner = tokio::spawn(self.run());
-        OwnerHandle { owner, ctrl_tx }
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => OwnerHandle {
+                owner: handle.spawn(self.run()),
+                ctrl_tx,
+                _runtime_thread: None,
+            },
+            Err(_) => {
+                let (tx_done, rx_done) = std::sync::mpsc::sync_channel::<tokio::task::JoinHandle<()>>(1);
+                let thread = std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("process manager runtime");
+                    let handle = rt.spawn(self.run());
+                    let _ = tx_done.send(handle);
+                    rt.block_on(async {
+                        // Keep runtime alive; the task completes on shutdown/drop.
+                        std::future::pending::<()>().await;
+                    });
+                });
+                let owner = rx_done
+                    .recv()
+                    .expect("process manager handle");
+                OwnerHandle {
+                    owner,
+                    ctrl_tx,
+                    _runtime_thread: Some(thread),
+                }
+            }
+        }
     }
 
     pub fn state(&self) -> ProcessState {

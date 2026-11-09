@@ -9,38 +9,45 @@ use std::sync::Arc;
 use minewrap_tauri::{NodeService, commands};
 use tauri::Emitter;
 
+fn config_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("XDG_CONFIG_HOME") {
+        return PathBuf::from(path).join("minewrap");
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home).join(".config").join("minewrap");
+    }
+    PathBuf::from(".").join(".minewrap")
+}
+
 fn default_config_path() -> PathBuf {
     if let Some(path) = std::env::var_os("MINEWRAP_CONFIG") {
         return PathBuf::from(path);
     }
-    let candidate = Path::new("minewrap.toml");
-    if candidate.exists() {
-        return candidate.to_path_buf();
+    let stable = config_dir().join("minewrap.toml");
+    let _ = std::fs::create_dir_all(stable.parent().unwrap_or(Path::new(".")));
+    if stable.exists() {
+        return stable;
     }
-    // Portable layout: config next to the AppImage / binary (the
-    // AppImage is a single fusesquashfs mount; the writable data dir
-    // lives beside the .AppImage file on the host).
-    if let Some(exe) = std::env::current_exe().ok() {
+    // Migrate a legacy config next to the binary/AppImage (writable host path).
+    if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let candidate = dir.join("minewrap.toml");
-            if candidate.exists() {
-                return candidate;
+            let legacy = dir.join("minewrap.toml");
+            if legacy.exists() {
+                let _ = std::fs::copy(&legacy, &stable);
+                return stable;
             }
         }
     }
-    // First run (no config yet): write an example beside the binary
-    // so the user edits it, then the embedded core runs in-memory
-    // until `minewrap.toml` exists.
-    if let Some(exe) = std::env::current_exe().ok() {
-        if let Some(dir) = exe.parent() {
-            let example = dir.join("minewrap.toml");
-            let defaults = minewrap_core::DaemonConfig::default();
-            let _ = defaults.save_to(&example.to_string_lossy());
-            return example;
-        }
+    let legacy_cwd = Path::new("minewrap.toml");
+    if legacy_cwd.exists() {
+        let _ = std::fs::copy(legacy_cwd, &stable);
+        return stable;
     }
-    PathBuf::from("minewrap.toml")
+    let defaults = minewrap_core::DaemonConfig::default();
+    let _ = defaults.save_to(&stable.to_string_lossy());
+    stable
 }
+
 
 /// Locate the bundled `minewrapd` next to the Tauri binary (AppImage
 /// `usr/bin/` or a portable `binaries/` sibling). Returns `None` when
@@ -117,6 +124,7 @@ async fn spawn_forwarder_future(
                     match ev {
                         Some(Event::LogLine(le)) => pending.push((le.instance_id.clone(), le.line)),
                         Some(Event::StateChange(sc)) => {
+                            svc.update_process_state(&sc.instance_id, sc.new_state.as_str(), sc.reason.as_str());
                             let payload = serde_json::json!({
                                 "node_id": "local",
                                 "instance_id": sc.instance_id,
@@ -167,11 +175,15 @@ fn main() {
     let node_service = match NodeService::load(&config_str) {
         Ok(svc) => Arc::new(svc),
         Err(e) => {
-            eprintln!("minewrap: failed to load config {config_str}: {e}");
-            Arc::new(NodeService::from_config(
-                minewrap_core::DaemonConfig::default(),
-                Arc::new(minewrap_core::EventBus::new()),
-            ))
+            eprintln!("minewrap: failed to load config {config_str}: {e}; using stable defaults");
+            let defaults = minewrap_core::DaemonConfig::default();
+            let _ = defaults.save_to(&config_str);
+            Arc::new(NodeService::load(&config_str).unwrap_or_else(|_| {
+                NodeService::from_config(
+                    minewrap_core::DaemonConfig::default(),
+                    Arc::new(minewrap_core::EventBus::new()),
+                )
+            }))
         }
     };
 
