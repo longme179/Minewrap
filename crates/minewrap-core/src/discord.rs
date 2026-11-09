@@ -346,11 +346,12 @@ impl Notifier {
     pub async fn request(&self, url: &str, method: &str, payload: &serde_json::Value) -> Result<(u16, serde_json::Value), String> {
         let masked = mask_webhook_url(url);
         let mut attempt = 0;
+        let body_payload = serde_json::json!({ "embeds": [payload] });
         loop {
             attempt += 1;
             let req = self.http
                 .request(match method { "POST" => reqwest::Method::POST, _ => reqwest::Method::PATCH }, url)
-                .json(payload);
+                .json(&body_payload);
             let resp = req.send().await.map_err(|e| format!("discord request failed for {masked}: {e}"))?;
             let status = resp.status().as_u16();
             let body: serde_json::Value = resp

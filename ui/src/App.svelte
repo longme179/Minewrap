@@ -7,6 +7,7 @@
   import { createAdapter } from "./ipc/factory.js";
   import { createConsoleStore } from "./stores/console.js";
   import { formatError } from "./lib/formatError.js";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
 
   const ipc = createAdapter();
   const store = createConsoleStore();
@@ -79,6 +80,18 @@
       await loadInstances();
     } catch (e) {
       actionError = `Remove failed: ${formatError(e)}`;
+    }
+  }
+
+  async function onCommand(cmd: string) {
+    await runAction("Command", () => ipc.sendCommand(selectedNode, selectedInstance, cmd));
+  }
+
+  async function closeApp() {
+    try {
+      await getCurrentWindow().close();
+    } catch {
+      // browser/mock
     }
   }
 
@@ -155,6 +168,7 @@
         {#if selectedInstance}
           <button type="button" class="btn-secondary danger" onclick={remove}>Remove</button>
         {/if}
+        <button type="button" class="btn-secondary" onclick={closeApp}>Close app</button>
       </div>
     </nav>
     <section class="page" aria-label="Instance view">
@@ -169,6 +183,8 @@
           {nodeState}
           nodeId={selectedNode}
           instanceId={selectedInstance}
+          consoleStore={store}
+          {onCommand}
           bind:tab
           onStart={start}
           onStop={stop}
@@ -196,17 +212,17 @@
     display: flex;
     align-items: baseline;
     gap: var(--space-md);
-    padding: var(--space-md) var(--space-lg);
+    padding: var(--space-xl) var(--space-2xl);
     border-bottom: 1px solid var(--color-border);
   }
   h1 { font-family: var(--font-mono); font-size: 16px; margin: 0; }
   .subtitle { color: var(--color-muted-foreground); font-size: 12px; }
   .layout { flex: 1; display: flex; min-height: 0; }
   .tree {
-    width: 220px;
+    width: 240px;
     flex-shrink: 0;
     border-right: 1px solid var(--color-border);
-    padding: var(--space-md);
+    padding: var(--space-xl) var(--space-lg);
     font-size: 13px;
     display: flex;
     flex-direction: column;
@@ -231,7 +247,7 @@
     border-radius: var(--radius-sm);
   }
   .tree-active { background: var(--color-muted); }
-  .tree-actions { margin-top: auto; display: flex; flex-direction: column; gap: var(--space-sm); }
+  .tree-actions { margin-top: auto; display: flex; flex-direction: column; gap: var(--space-sm); padding-top: var(--space-xl); }
   .btn-secondary {
     background: transparent;
     color: var(--color-foreground);
@@ -242,9 +258,9 @@
     cursor: pointer;
   }
   .btn-secondary.danger { color: var(--color-destructive); border-color: var(--color-destructive); }
-  .page { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow-y: auto; }
+  .page { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow-y: auto; padding: var(--space-sm) var(--space-lg) var(--space-xl) 0; }
   .action-error {
-    margin: var(--space-md) var(--space-lg) 0;
+    margin: var(--space-md) var(--space-xl) 0;
     padding: var(--space-sm) var(--space-md);
     border: 1px solid var(--color-destructive);
     border-radius: var(--radius-sm);
@@ -252,7 +268,7 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
-  .empty { color: var(--color-muted-foreground); padding: var(--space-lg); }
+  .empty { color: var(--color-muted-foreground); padding: var(--space-2xl); }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .dot-online { background: var(--color-state-online); }
   .badge {

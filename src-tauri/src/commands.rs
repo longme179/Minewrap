@@ -239,7 +239,7 @@ pub async fn update_config(
     instance_id: String,
     patch: serde_json::Value,
 ) -> Result<Action, MinewrapError> {
-    state.patch_instance(&instance_id, patch)?;
+    state.patch_instance(&instance_id, patch).await?;
     Ok(Action { ok: true, detail: Some("config updated".into()) })
 }
 

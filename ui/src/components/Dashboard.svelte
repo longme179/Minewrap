@@ -25,6 +25,8 @@
     nodeId?: string;
     instanceId?: string;
     tab?: string;
+    consoleStore?: any;
+    onCommand?: (cmd: string) => void;
     onStart?: () => void;
     onStop?: () => void;
     onRestart?: () => void;
@@ -37,6 +39,8 @@
     nodeId = "local",
     instanceId = "survival",
     tab = $bindable("console"),
+    consoleStore = undefined,
+    onCommand = () => {},
     onStart = () => {},
     onStop = () => {},
     onRestart = () => {},
@@ -98,7 +102,7 @@
 
   <div class="tab-panels">
     {#if tab === "console"}
-      <Console />
+      <Console store={consoleStore} {onCommand} />
     {:else if tab === "settings"}
       <Settings {nodeId} {instanceId} />
     {:else if tab === "properties"}
