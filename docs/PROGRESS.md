@@ -12,7 +12,8 @@ Status key: [ ] todo · [~] doing · [x] done · [!] blocked
 ## 2. Known defects
 - [x] a. `[object Object]` (root cause: `String(e)` on the structured `{code,message}` envelope). Global `formatError()` + unit test; grep UI for the same pattern.
   Evidence: `ui/src/lib/formatError.ts`, `ui/scripts/formatError.test.ts` (2 tests), `pnpm test` 5 passed 2026-11-09 21:30.
-- [ ] b. Native `<select>` unreadable (light bg / white text). One themed, accessible Select component; `color-scheme: dark`.
+- [x] b. Native `<select>` unreadable (light bg / white text). One themed, accessible Select component; `color-scheme: dark`.
+  Evidence: `ui/src/components/Select.svelte`, `Settings` + `Notifications` policy/mode use it, `pnpm run check` 0 errors 2026-11-09 21:38.
 - [ ] c. JVM args single truncated line. Replace with RAM controls + preset + advanced editor (4d).
 - [ ] d. Save gives no feedback. Dirty indicator, Save/Revert, success/failure feedback, unsaved-changes guard.
 - [ ] e. Stray separators in status line (e.g. "– / – players ·"). Consistent unknown placeholder.

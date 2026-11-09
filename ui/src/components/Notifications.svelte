@@ -5,6 +5,7 @@
 <script lang="ts">
   import { createAdapter } from "../ipc/factory.js";
   import { formatError } from "../lib/formatError.js";
+  import Select from "./Select.svelte";
   import type { ConfigView } from "../ipc/mod.js";
 
   const ipc = createAdapter();
@@ -114,13 +115,17 @@
           <input type="checkbox" bind:checked={enabled} />
           Enabled
         </label>
-        <label class="row">
-          Mode
-          <select bind:value={mode} class="input">
-            <option value="edit-in-place">Edit in place (one message, updated)</option>
-            <option value="new-message">New message every interval</option>
-          </select>
-        </label>
+        <div class="row">
+          <span>Mode</span>
+          <Select
+            bind:value={mode}
+            name="mode"
+            options={[
+              { value: "edit-in-place", label: "Edit in place (one message, updated)" },
+              { value: "new-message", label: "New message every interval" },
+            ]}
+          />
+        </div>
         <label class="row">
           Interval (seconds)
           <input class="input" type="number" min="10" bind:value={interval} />

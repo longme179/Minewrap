@@ -4,6 +4,7 @@
 <script lang="ts">
   import { createAdapter } from "../ipc/factory.js";
   import { formatError } from "../lib/formatError.js";
+  import Select from "./Select.svelte";
   import type { ConfigView } from "../ipc/mod.js";
 
   const ipc = createAdapter();
@@ -130,13 +131,17 @@
 
       <fieldset>
         <legend>Restart</legend>
-        <label class="row">
-          Policy
-          <select class="input" bind:value={restart.policy}>
-            <option value="never">never</option>
-            <option value="on-crash">on-crash</option>
-          </select>
-        </label>
+        <div class="row">
+          <span>Policy</span>
+          <Select
+            bind:value={restart.policy}
+            name="policy"
+            options={[
+              { value: "never", label: "never" },
+              { value: "on-crash", label: "on-crash" },
+            ]}
+          />
+        </div>
         <label class="row">Max retries <input class="input" type="number" min="0" max="100" bind:value={restart.max_retries} /></label>
         <label class="row">Backoff base (s) <input class="input" type="number" min="0.1" step="0.1" bind:value={restart.backoff_base_seconds} /></label>
         <label class="row">Backoff max (s) <input class="input" type="number" min="0.1" step="0.1" bind:value={restart.backoff_max_seconds} /></label>
