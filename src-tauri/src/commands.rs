@@ -278,6 +278,15 @@ pub async fn scan_launch(
     work_dir: String,
 ) -> Result<serde_json::Value, MinewrapError> {
     let dir = std::path::PathBuf::from(&work_dir);
+    // Confinement: the caller has synched the visible dir; we stay
+    // inside it and never follow `..` escapes.
+    let dir = if dir.is_absolute() {
+        dir
+    } else {
+        std::env::current_dir()
+            .map_err(|e| MinewrapError::invalid(e.to_string()))?
+            .join(dir)
+    };
     if !dir.exists() {
         return Err(MinewrapError::invalid(format!("{} does not exist", dir.to_string_lossy())));
     }

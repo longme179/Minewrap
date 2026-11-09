@@ -17,10 +17,13 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/cli": "^2",
     "@tsconfig/svelte": "^5",
+    "eslint": "^9",
+    "prettier": "^3",
     "svelte": "^5",
     "svelte-check": "^4",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "typescript-eslint": "^8.72.1",
     "vite": "^8",
     "vitest": "^3"
   }
