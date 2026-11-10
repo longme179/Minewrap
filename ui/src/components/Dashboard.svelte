@@ -128,7 +128,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-md);
-    padding: var(--space-md) var(--space-lg);
+    padding: var(--space-lg) var(--space-2xl);
     border-bottom: 1px solid var(--color-border);
   }
   .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--color-muted-foreground); }
@@ -160,7 +160,7 @@
     cursor: pointer;
   }
   .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
-  .tabs { display: flex; gap: var(--space-xs); padding: var(--space-sm) var(--space-lg); border-bottom: 1px solid var(--color-border); }
+  .tabs { display: flex; gap: var(--space-xs); padding: var(--space-sm) var(--space-2xl); border-bottom: 1px solid var(--color-border); }
   .tab {
     background: transparent;
     border: none;
@@ -175,12 +175,13 @@
   .tab-panels { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .tab-panels > :global(*) { flex: 1; min-height: 0; }
   .snapshot-error {
-    margin: 0 var(--space-lg) var(--space-sm);
+    margin: var(--space-sm) var(--space-2xl) 0;
     padding: var(--space-sm) var(--space-md);
     border: 1px solid var(--color-destructive);
     border-radius: var(--radius-sm);
     color: var(--color-destructive);
     font-size: 12px;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 </style>
