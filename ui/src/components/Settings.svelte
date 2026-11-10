@@ -63,8 +63,9 @@
     javaPath = v.java_path || "java";
     minRamMb = parseRam(v.jvm_args, "-Xms", 2048);
     maxRamMb = parseRam(v.jvm_args, "-Xmx", 4096);
-    preset = jvmArgsText_looksAikar(v.jvm_args) ? "aikar" : (v.jvm_args.join(" ").trim() ? "custom" : "none");
-    jvmArgsText = v.jvm_args.join("\n");
+    const extra = v.jvm_args.filter((a) => !isRamArg(a));
+    preset = jvmArgsText_looksAikar(v.jvm_args) ? "aikar" : extra.length ? "custom" : "none";
+    jvmArgsText = extra.join("\n");
     launchArgsText = v.launch_args.join(" ");
     autostart = v.autostart;
     probe = { ...v.probe };
@@ -141,6 +142,11 @@
     error = "";
     status = "";
     saving = true;
+    if (!Number.isFinite(minRamMb) || !Number.isFinite(maxRamMb) || minRamMb < 256 || maxRamMb < 256) {
+      error = "RAM values must be at least 256 MiB.";
+      saving = false;
+      return;
+    }
     if (maxRamMb < minRamMb) {
       error = "Max RAM must be >= Min RAM.";
       saving = false;
@@ -171,21 +177,26 @@
   // --- RAM / JVM args (goal §4d) ---
 
   function parseRam(args: string[], prefix: string, fallback: number): number {
+    let value = fallback;
     for (const a of args) {
       if (a.startsWith(prefix)) {
         const m = a.match(/^-(?:Xms|Xmx)(\d+)([MmGg])?$/);
         if (m) {
           const n = parseInt(m[1], 10);
-          return m[2] && (m[2] === "G" || m[2] === "g") ? n * 1024 : n;
+          value = m[2] && (m[2] === "G" || m[2] === "g") ? n * 1024 : n;
         }
       }
     }
-    return fallback;
+    return value;
   }
 
   function ramArg(prefix: string, mb: number): string {
     if (mb >= 1024 && mb % 1024 === 0) return `${prefix}${mb / 1024}G`;
     return `${prefix}${mb}M`;
+  }
+
+  function isRamArg(arg: string): boolean {
+    return /^-(?:Xms|Xmx)\d+[MmGg]?$/.test(arg);
   }
 
   function jvmArgsText_looksAikar(args: string[]): boolean {
@@ -195,11 +206,10 @@
   const ramConflict = $derived(minRamMb > maxRamMb);
 
   function finalJvmArgs(): string[] {
-    if (preset === "none") return [];
+    const ram = [ramArg("-Xms", minRamMb), ramArg("-Xmx", maxRamMb)];
     if (preset === "aikar") {
       return [
-        ramArg("-Xms", minRamMb),
-        ramArg("-Xmx", maxRamMb),
+        ...ram,
         "-XX:+UseG1GC",
         "-XX:+ParallelRefProcEnabled",
         "-XX:MaxGCPauseMillis=200",
@@ -223,8 +233,11 @@
         "-Dlog4j2.formatMsgNoLookups=true",
       ];
     }
-    const extra = jvmArgsText.split("\n").map((s) => s.trim()).filter(Boolean);
-    return [ramArg("-Xms", minRamMb), ramArg("-Xmx", maxRamMb), ...extra];
+    const extra = jvmArgsText
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && !isRamArg(s));
+    return [...ram, ...extra];
   }
 
   function applyAikar() {

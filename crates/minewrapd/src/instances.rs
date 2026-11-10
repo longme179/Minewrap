@@ -28,23 +28,31 @@ pub struct ManagedInstance {
 pub struct InstanceManager {
     pub instances: Mutex<HashMap<String, ManagedInstance>>,
     pub bus: Arc<EventBus>,
-    pub daemon: DaemonConfig,
+    pub daemon: Mutex<DaemonConfig>,
+    pub config_path: Option<String>,
 }
 
 impl InstanceManager {
-    pub fn load(config: DaemonConfig, bus: Arc<EventBus>) -> Self {
+    pub fn load(config: DaemonConfig, bus: Arc<EventBus>, config_path: Option<String>) -> Self {
         let mut mgr = Self {
             instances: Mutex::new(HashMap::new()),
             bus: bus.clone(),
-            daemon: config,
+            daemon: Mutex::new(config),
+            config_path,
         };
         mgr.start_all();
         mgr
     }
 
     fn start_all(&mut self) {
-        let defaults = self.daemon.daemon.defaults.clone();
-        let configs: Vec<InstanceConfig> = self.daemon.instances.clone();
+        let (defaults, configs, unresponsive_after_failures) = {
+            let daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                daemon.daemon.defaults.clone(),
+                daemon.instances.clone(),
+                daemon.daemon.unresponsive_after_failures,
+            )
+        };
         for cfg in configs {
             let buf = Arc::new(Mutex::new(LogBuffer::new(defaults.log_buffer_lines)));
             let manager = ProcessManager::new(
@@ -58,7 +66,7 @@ impl InstanceManager {
             let state = InstanceState::new(
                 cfg.id.clone(),
                 cfg.display_name().to_string(),
-                self.daemon.daemon.unresponsive_after_failures,
+                unresponsive_after_failures,
             );
             self.instances
                 .lock()
@@ -104,40 +112,45 @@ impl InstanceManager {
             .map(|m| m.config.clone())
     }
 
-    /// Patch the in-memory config + the TOML file next to it.
+    /// Patch the in-memory config + persist to the daemon TOML, then
+    /// push the new config to the running process manager so the next
+    /// start uses it.
     pub fn patch_instance(
         &self,
         id: &str,
         patch: serde_json::Value,
     ) -> Result<(), String> {
-        // `InstanceManager.daemon` is immutable; patches are applied
-        // to `ManagedInstance.config` then persisted via a cloned
-        // doc. The daemon's TOML is reloaded on restart.
         let cfg = self.config_of(id).ok_or_else(|| format!("unknown instance: {id}"))?;
-        let mut updated = cfg.clone();
         // Merge into a json doc for core::patch_instance reuse.
         let mut doc = serde_json::json!({
-            "name": updated.name,
-            "work_dir": updated.work_dir,
-            "java_path": updated.java_path,
-            "jvm_args": updated.jvm_args,
-            "launch_args": updated.launch_args,
-            "autostart": updated.autostart,
-            "probe": serde_json::to_value(&updated.probe).unwrap_or(serde_json::json!({})),
-            "restart": serde_json::to_value(&updated.restart).unwrap_or(serde_json::json!({})),
-            "discord": serde_json::to_value(&updated.discord).unwrap_or(serde_json::json!({})),
+            "name": cfg.name,
+            "work_dir": cfg.work_dir,
+            "java_path": cfg.java_path,
+            "jvm_args": cfg.jvm_args,
+            "launch_args": cfg.launch_args,
+            "autostart": cfg.autostart,
+            "probe": serde_json::to_value(&cfg.probe).unwrap_or(serde_json::json!({})),
+            "restart": serde_json::to_value(&cfg.restart).unwrap_or(serde_json::json!({})),
+            "discord": serde_json::to_value(&cfg.discord).unwrap_or(serde_json::json!({})),
         });
         for (k, v) in patch.as_object().cloned().unwrap_or_default() {
             doc[&k] = v;
         }
-        let mut daemon = self.daemon.clone();
-        daemon.patch_instance(id, doc)?;
-        updated = daemon
-            .instances
-            .iter()
-            .find(|c| c.id == id)
-            .cloned()
-            .ok_or_else(|| format!("unknown instance: {id}"))?;
+
+        let updated = {
+            let mut daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
+            daemon.patch_instance(id, doc)?;
+            let updated = daemon
+                .instances
+                .iter()
+                .find(|c| c.id == id)
+                .cloned()
+                .ok_or_else(|| format!("unknown instance: {id}"))?;
+            if let Some(path) = &self.config_path {
+                daemon.save_to(path)?;
+            }
+            updated
+        };
 
         {
             let mut guard = self
@@ -145,9 +158,10 @@ impl InstanceManager {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             if let Some(m) = guard.get_mut(id) {
-                m.config = updated;
+                m.config = updated.clone();
             }
         }
+        self.send_control(id, Control::ApplyConfig(updated));
         Ok(())
     }
 
@@ -177,7 +191,8 @@ impl InstanceManager {
     }
 
     pub fn data_dir(&self) -> PathBuf {
-        PathBuf::from(&self.daemon.daemon.data_dir)
+        let daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
+        PathBuf::from(&daemon.daemon.data_dir)
     }
 
     pub fn work_dir_of(&self, id: &str) -> Option<PathBuf> {

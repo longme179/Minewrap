@@ -45,7 +45,11 @@ async fn main() -> anyhow::Result<()> {
         });
 
     let bus = Arc::new(minewrap_core::EventBus::new());
-    let mgr = Arc::new(InstanceManager::load(daemon.clone(), bus));
+    let mgr = Arc::new(InstanceManager::load(
+        daemon.clone(),
+        bus,
+        Some(config_path.clone()),
+    ));
     let auth = TokenAuth::new(token);
     let router = create_router(mgr.clone(), auth);
 

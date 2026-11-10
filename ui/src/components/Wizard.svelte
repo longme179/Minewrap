@@ -119,6 +119,10 @@
       const ok = await scan();
       if (!ok && scanError) return;
     }
+    if (step === 3 && (!Number.isFinite(minRam) || !Number.isFinite(maxRam) || minRam < 256 || maxRam < 256)) {
+      error = "RAM values must be at least 256 MiB.";
+      return;
+    }
     if (step === 3 && maxRam < minRam) {
       error = "Max RAM must be >= Min RAM.";
       return;
@@ -159,9 +163,9 @@
   }
 
   function finalJvm(): string[] {
-    if (preset === "none") return [];
-    if (preset === "aikar") return [`-Xms${ram(minRam)}`, `-Xmx${ram(maxRam)}`, "-XX:+UseG1GC", "-Dlog4j2.formatMsgNoLookups=true"];
-    return [`-Xms${ram(minRam)}`, `-Xmx${ram(maxRam)}`];
+    const ramArgs = [`-Xms${ram(minRam)}`, `-Xmx${ram(maxRam)}`];
+    if (preset === "aikar") return [...ramArgs, "-XX:+UseG1GC", "-Dlog4j2.formatMsgNoLookups=true"];
+    return ramArgs;
   }
 
   loadRuntimes();
