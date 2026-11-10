@@ -91,7 +91,7 @@ cp "$BUNDLE_DIR"/*.AppImage "$DEST"
 chmod +x "$DEST"
 
 cat > dist/BUILD_FROM_SOURCE.md <<MD
-# Build Minewrap v1.9.1 from source (Linux x86_64)
+# Build Minewrap v1.9.2 from source (Linux x86_64)
 
 ## 1. System dependencies (one-time, system-wide)
 \`\`\`bash

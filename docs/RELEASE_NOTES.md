@@ -1,5 +1,12 @@
 # Release notes
 
+## v1.9.2
+- Fix RAM (Min/Max) settings being ignored on server start:
+  - Always include `-Xms`/`-Xmx` from the configured RAM values (including preset "None").
+  - Strip stale `-Xms`/`-Xmx` entries from custom JVM args on load/save so they cannot override the selected RAM (the JVM uses the last occurrence).
+  - Parse displayed RAM with last-wins semantics and validate RAM values before saving/creating an instance.
+  - Persist daemon config patches to TOML and push the updated config to the running process manager so starts use the new settings.
+
 ## v1.9.1
 - Clean up repository contents to keep project sources, packaging assets, and user-facing documentation.
 - Bump app and crate versions to `1.9.1`.

@@ -1,6 +1,6 @@
 [package]
 name = "minewrap-remote"
-version = "1.9.1"
+version = "1.9.2"
 edition = "2024"
 license = "MIT"
 description = "reqwest client for remote minewrapd nodes"
