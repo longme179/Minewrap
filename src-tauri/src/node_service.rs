@@ -836,7 +836,9 @@ impl NodeService {
             if let Some(map) = inner.instances.get_mut(LOCAL_NODE_ID) {
                 for rt in map.values_mut() {
                     if let Some(handle) = rt.handle.take() {
-                        handle.owner.abort();
+                        if let Some(owner) = handle.owner {
+                            owner.abort();
+                        }
                     }
                 }
             }

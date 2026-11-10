@@ -1,5 +1,10 @@
 # Release notes
 
+## v1.9.3
+- Fix orphaned app processes after close: prevent per-instance process-manager runtime threads from blocking forever on exit, harden GUI exit/cleanup flow, and stop the event forwarder when the event bus closes.
+- Update project and app license to GNU Affero General Public License v3.0 (AGPL-3.0).
+- Refresh app and project logo/icon assets.
+
 ## v1.9.2
 - Fix RAM (Min/Max) settings being ignored on server start:
   - Always include `-Xms`/`-Xmx` from the configured RAM values (including preset "None").

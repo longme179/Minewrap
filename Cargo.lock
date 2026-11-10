@@ -1874,7 +1874,7 @@ checksum = "d5848f5a9e8117cf94f2f90faac24a87ff81600ff8628c1e3deaab572e76bfa1"
 
 [[package]]
 name = "minewrap-core"
-version = "1.9.2"
+version = "1.9.3"
 dependencies = [
  "chrono",
  "regex",
@@ -1887,7 +1887,7 @@ dependencies = [
 
 [[package]]
 name = "minewrap-remote"
-version = "1.9.2"
+version = "1.9.3"
 dependencies = [
  "futures-util",
  "reqwest 0.12.28",
@@ -1899,7 +1899,7 @@ dependencies = [
 
 [[package]]
 name = "minewrap-tauri"
-version = "1.9.2"
+version = "1.9.3"
 dependencies = [
  "chrono",
  "minewrap-core",
@@ -1915,7 +1915,7 @@ dependencies = [
 
 [[package]]
 name = "minewrapd"
-version = "1.9.2"
+version = "1.9.3"
 dependencies = [
  "anyhow",
  "axum",

@@ -1,9 +1,9 @@
 [package]
 name = "minewrap-core"
-version = "1.9.2"
+version = "1.9.3"
 edition = "2024"
 description = "Tauri-free core for Minewrap: process lifecycle, logs, config"
-license = "MIT"
+license = "AGPL-3.0-only"
 
 [dependencies]
 tokio = { version = "1", features = ["rt", "sync", "process", "io-util", "time", "signal", "macros"] }

@@ -1,8 +1,8 @@
 [package]
 name = "minewrap-tauri"
-version = "1.9.2"
+version = "1.9.3"
 edition = "2024"
-license = "MIT"
+license = "AGPL-3.0-only"
 description = "Tauri shell for Minewrap v2 (local node, IPC routing)"
 
 [lib]

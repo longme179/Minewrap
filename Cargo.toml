@@ -4,9 +4,9 @@ members = ["crates/minewrap-core", "crates/minewrapd", "crates/minewrap-remote",
 exclude = []
 
 [workspace.package]
-version = "1.9.2"
+version = "1.9.3"
 edition = "2024"
-license = "MIT"
+license = "AGPL-3.0-only"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["rt", "sync", "process", "io-util", "time", "signal", "macros"] }

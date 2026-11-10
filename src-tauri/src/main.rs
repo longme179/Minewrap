@@ -4,10 +4,13 @@
 //! (`logs:batch` / `state:changed`).
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use minewrap_tauri::{NodeService, commands};
 use tauri::Emitter;
+
+static EXITING: AtomicBool = AtomicBool::new(false);
 
 fn config_dir() -> PathBuf {
     if let Some(path) = std::env::var_os("XDG_CONFIG_HOME") {
@@ -52,6 +55,7 @@ fn default_config_path() -> PathBuf {
 /// Locate the bundled `minewrapd` next to the Tauri binary (AppImage
 /// `usr/bin/` or a portable `binaries/` sibling). Returns `None` when
 /// the daemon is not shipped (dev builds).
+#[allow(dead_code)]
 fn bundled_daemon_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
@@ -71,6 +75,7 @@ fn bundled_daemon_path() -> Option<PathBuf> {
 /// exec the bundled daemon — with explicit args, never `sh -c` —
 /// then register the node. The embedded `NodeService` core remains
 /// the local node regardless; the sidecar is the always-on path.
+#[allow(dead_code)]
 fn ensure_daemon_running() -> Option<std::process::Child> {
     let daemon = match bundled_daemon_path() {
         Some(p) => p,
@@ -188,7 +193,8 @@ async fn spawn_forwarder_future(
                                 }
                             }
                         }
-                        _ => {}
+                        Some(_) => {}
+                        None => break,
                     }
                 }
                 _ = interval.tick() => {
@@ -290,6 +296,9 @@ fn main() {
         .expect("error while building Minewrap")
         .run(move |app_handle, event| {
             if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                if EXITING.swap(true, Ordering::SeqCst) {
+                    return;
+                }
                 api.prevent_exit();
                 let svc = svc_for_run.clone();
                 let handle = app_handle.clone();
@@ -312,6 +321,7 @@ fn main() {
                         eprintln!("minewrap: cleanup panicked during exit");
                     }
                     handle.exit(0);
+                    std::process::exit(0);
                 });
             }
         });

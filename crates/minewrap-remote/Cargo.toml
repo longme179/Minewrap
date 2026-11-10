@@ -1,8 +1,8 @@
 [package]
 name = "minewrap-remote"
-version = "1.9.2"
+version = "1.9.3"
 edition = "2024"
-license = "MIT"
+license = "AGPL-3.0-only"
 description = "reqwest client for remote minewrapd nodes"
 
 [dependencies]

@@ -242,7 +242,7 @@ pub fn spawn_reader(
 
 /// Handle for callers: owns the task, and carries the control channel.
 pub struct OwnerHandle {
-    pub owner: tokio::task::JoinHandle<()>,
+    pub owner: Option<tokio::task::JoinHandle<()>>,
     pub ctrl_tx: mpsc::Sender<Control>,
     _runtime_thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -313,26 +313,20 @@ impl ProcessManager {
         let ctrl_tx = self.ctrl_tx.clone();
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => OwnerHandle {
-                owner: handle.spawn(self.run()),
+                owner: Some(handle.spawn(self.run())),
                 ctrl_tx,
                 _runtime_thread: None,
             },
             Err(_) => {
-                let (tx_done, rx_done) = std::sync::mpsc::sync_channel::<tokio::task::JoinHandle<()>>(1);
                 let thread = std::thread::spawn(move || {
                     let rt = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
                         .expect("process manager runtime");
-                    let handle = rt.spawn(self.run());
-                    let _ = tx_done.send(handle);
-                    rt.block_on(std::future::pending::<()>());
+                    rt.block_on(self.run());
                 });
-                let owner = rx_done
-                    .recv()
-                    .expect("process manager handle");
                 OwnerHandle {
-                    owner,
+                    owner: None,
                     ctrl_tx,
                     _runtime_thread: Some(thread),
                 }
