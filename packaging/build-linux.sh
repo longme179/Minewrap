@@ -66,10 +66,11 @@ else
   exit 1
 fi
 cargo build --release -p minewrapd
+mkdir -p src-tauri/binaries
 cp "target/release/minewrapd" "src-tauri/binaries/minewrapd-x86_64-unknown-linux-gnu"
 
 # `cargo tauri` needs tauri-cli; use the npm-shipped one from the UI tree.
-TAURI="$(cd ui && pnpm exec tauri --version >/dev/null 2>&1 && echo ./ui/node_modules/.bin/tauri || echo "")"
+TAURI="$(cd ui && pnpm exec tauri --version >/dev/null 2>&1 && echo ui/node_modules/.bin/tauri || echo "")"
 if [ -z "$TAURI" ]; then
   echo "error: tauri CLI not found (run 'cd ui && pnpm install' first)." >&2
   exit 1
@@ -121,6 +122,7 @@ Manual equivalent (what the script runs):
 \`\`\`bash
 (cd ui && pnpm install && pnpm run build)
 cargo build --release -p minewrapd
+mkdir -p src-tauri/binaries
 cp target/release/minewrapd src-tauri/binaries/minewrapd-x86_64-unknown-linux-gnu
 ./ui/node_modules/.bin/tauri build --bundles appimage
 \`\`\`

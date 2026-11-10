@@ -1,6 +1,5 @@
 # Cargo / Rust
 target/
-Cargo.lock
 *.rs.bk
 
 # Node

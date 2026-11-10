@@ -1,35 +1,44 @@
-# Minewrap v2
+# Minewrap
 
 Fast, light desktop manager for Minecraft Java Edition servers (one or many, local or remote). A Tauri 2 + Svelte 5 app over a Tauri-free Rust core; the same core runs headless as `minewrapd` (axum REST+WebSocket) for always-on remote nodes and Discord posts.
 
-Current source tree targets the v2 (Rust + Svelte) application. See `docs/PARITY.md` and `docs/RELEASE_NOTES.md` for details.
+**AppImage (Linux x86_64) is the primary distribution.** Prebuilt AppImages are published on [GitHub Releases](https://github.com/longme179/Minewrap/releases).
 
 ## Quick start
 
+### Run the AppImage
 ```bash
-# Build the UI
-cd ui && pnpm install && pnpm build
-
-# Run the daemon (headless, binds 127.0.0.1:8080 by default)
-cargo run -p minewrapd -- --config examples/minewrap.toml
-
-# Run the desktop app (Linux/Wayland first; needs webkit2gtk dev headers:
-#   sudo dnf install webkit2gtk-4.1-devel libsoup-devel gtk3-devel)
-cargo run -p minewrap-tauri
+chmod +x Minewrap-x86_64.AppImage
+./Minewrap-x86_64.AppImage
+# On systems without FUSE:
+./Minewrap-x86_64.AppImage --appimage-extract-and-run
 ```
 
-See [`docs/remote-access.md`](docs/remote-access.md) for reaching a remote daemon over SSH port-forward.
+### Run from source (development)
+```bash
+# Build the UI
+cd ui && pnpm install && pnpm build && cd ..
+
+# Run the desktop app (requires WebKitGTK/libsoup dev headers; see docs/BUILD_APPIMAGE.md)
+cargo run -p minewrap-tauri
+
+# Run the headless daemon (binds 127.0.0.1:8080 by default)
+cargo run -p minewrapd -- --config examples/minewrap.toml
+```
+
+See [`docs/BUILD_APPIMAGE.md`](docs/BUILD_APPIMAGE.md) for full AppImage build prerequisites and steps, and [`docs/remote-access.md`](docs/remote-access.md) for reaching a remote daemon over SSH port-forward.
 
 ## Repo layout
 
 ```
-Cargo.toml             # workspace
+Cargo.toml             # Rust workspace
+Cargo.lock             # locked Rust dependencies (reproducible builds)
 crates/minewrap-core   # Tauri-free core: config, process, logs, poller, discord, properties, mods
 crates/minewrapd       # headless axum daemon (REST + WS)
 crates/minewrap-remote # reqwest client for remote nodes
 src-tauri/             # Tauri desktop app
 ui/                    # Vite + Svelte + TypeScript frontend
-packaging/             # AppImage/systemd packaging assets
+packaging/             # AppImage build script, AppRun/desktop, systemd unit
 examples/              # example config
 docs/                  # documentation
 ```
@@ -41,12 +50,9 @@ cargo build --workspace
 cd ui && pnpm run check && pnpm build
 ```
 
-## Performance
-
-Target: main Tauri process stable under 30 MB under load (WebKit helpers reported separately). Validate on a heavy modpack by running the desktop app with the server console open and sampling RSS per process (for example with `ps`/`pmap`). Report main Tauri, each WebKit helper, and total separately.
-
 ## Docs
 
+- [`docs/BUILD_APPIMAGE.md`](docs/BUILD_APPIMAGE.md) — build the AppImage (main product)
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — architecture and config overview
 - [`docs/remote-access.md`](docs/remote-access.md) — reaching a remote daemon
 - [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) — release notes
