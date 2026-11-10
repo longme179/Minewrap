@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["crates/minewrap-core", "crates/fake-mc-server", "crates/minewrapd", "crates/minewrap-remote", "src-tauri"]
+members = ["crates/minewrap-core", "crates/minewrapd", "crates/minewrap-remote", "src-tauri"]
 exclude = []
 
 [workspace.package]
-version = "0.1.0"
+version = "1.9.1"
 edition = "2024"
 license = "MIT"
 

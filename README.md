@@ -2,7 +2,7 @@
 
 Fast, light desktop manager for Minecraft Java Edition servers (one or many, local or remote). A Tauri 2 + Svelte 5 app over a Tauri-free Rust core; the same core runs headless as `minewrapd` (axum REST+WebSocket) for always-on remote nodes and Discord posts.
 
-**v2.0.0** — Rust workspace + Svelte UI. v1.0.0 (Python) is in `legacy/` (tag `v1.0.0`), kept runnable; parity audit in `docs/PARITY.md`.
+Current source tree targets the v2 (Rust + Svelte) application. See `docs/PARITY.md` and `docs/RELEASE_NOTES.md` for details.
 
 ## Quick start
 
@@ -23,51 +23,33 @@ See [`docs/remote-access.md`](docs/remote-access.md) for reaching a remote daemo
 ## Repo layout
 
 ```
-Cargo.toml           # workspace
-crates/minewrap-core # Tauri-free core: config, process, logs, poller, discord, properties, mods
-crates/minewrapd     # headless axum daemon (REST + WS)
+Cargo.toml             # workspace
+crates/minewrap-core   # Tauri-free core: config, process, logs, poller, discord, properties, mods
+crates/minewrapd       # headless axum daemon (REST + WS)
 crates/minewrap-remote # reqwest client for remote nodes
-crates/fake-mc-server # stress fixture
-src-tauri/           # Tauri commands/events/capabilities
-ui/                  # Vite + Svelte + TS SPA
-docs/                # PARITY, design, remote-access, adrs
-design-system/       # ui-ux-pro-max generated tokens
-packaging/           # systemd user unit
-scripts/             # measure-rss.sh
-legacy/              # v1.0.0 (Python, runnable)
+src-tauri/             # Tauri desktop app
+ui/                    # Vite + Svelte + TypeScript frontend
+packaging/             # AppImage/systemd packaging assets
+examples/              # example config
+docs/                  # documentation
 ```
 
-## Tests / lints
+## Build checks
 
 ```bash
-cargo test --workspace
-cd ui && pnpm test && pnpm run check && pnpm build
+cargo build --workspace
+cd ui && pnpm run check && pnpm build
 ```
-
-Warnings are denied in the Rust workspace (`[workspace.lints.rust]`).
 
 ## Performance
 
-Budgets and how to measure them: [`scripts/measure-rss.sh`](scripts/measure-rss.sh) (main Tauri process, each WebKit helper, and the total, separately). Real heavy-modpack test (NeoForge 1.21.1, 6–8 GB): run the server, open the console, then:
-
-```bash
-cargo run -p minewrap-tauri
-./scripts/measure-rss.sh <tauri-main-pid> 30
-```
-
-Pass criterion: main Tauri process stable under 30 MB; otherwise the report lists the biggest contributors honestly.
+Target: main Tauri process stable under 30 MB under load (WebKit helpers reported separately). Validate on a heavy modpack by running the desktop app with the server console open and sampling RSS per process (for example with `ps`/`pmap`). Report main Tauri, each WebKit helper, and total separately.
 
 ## Docs
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — IPC contract + config schema + threading/RSS budget
-- [`docs/PARITY.md`](docs/PARITY.md) — v1 → v2 parity audit
-- [`docs/design/BRIEF.md`](docs/design/BRIEF.md) + [`DECISIONS.md`](docs/design/DECISIONS.md) — design evidence
-- [`docs/remote-access.md`](docs/remote-access.md) — SSH forward (recommended)
-- [`docs/adr/`](docs/adr/) — architecture decision records
-
-## Release notes
-
-See [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md).
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — architecture and config overview
+- [`docs/remote-access.md`](docs/remote-access.md) — reaching a remote daemon
+- [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) — release notes
 
 ## License
 

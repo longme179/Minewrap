@@ -45,6 +45,6 @@ mod tests {
     #[test]
     fn api_version_is_explicit() {
         assert_eq!(API_VERSION, "1.0");
-        assert_eq!(CORE_VERSION, "0.1.0");
+        assert_eq!(CORE_VERSION, env!("CARGO_PKG_VERSION"));
     }
 }

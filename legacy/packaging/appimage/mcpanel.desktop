@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=mcpanel
-Comment=Manage Minecraft Java Edition servers
-Exec=mcpanel-gui
-Icon=mcpanel
-Categories=Game;Utility;
-Terminal=false
-StartupWMClass=mcpanel

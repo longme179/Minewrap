@@ -137,12 +137,7 @@ host = "127.0.0.1", port = 25575
 password_env = "MC_RCON_PASSWORD"
 ```
 
-Migration from v1.0.0 `config.toml` (`legacy/config.example.toml` and
-`mcpanel_common/config.py`): fields map 1:1 except `token` and
-`discord.webhook_url` move to the secrets store; `data_dir`/`work_dir`
-resolve against the config file (same rule as v1). Unknown keys fail loudly
-(`deny_unknown_fields`). A one-time converter is `legacy/tools/convert_v1_config.py`
-(planned Phase 6).
+Migration from v1.x `config.toml`: fields map 1:1 except `token` and `discord.webhook_url` move to the secrets store; `data_dir`/`work_dir` resolve against the config file. Unknown keys fail loudly (`deny_unknown_fields`).
 
 ## Secrets
 
@@ -155,10 +150,7 @@ in views). Never expose RCON. Daemon binds `127.0.0.1` by default.
 
 - Embedded core + notifier + poller share one tokio runtime; Tauri commands
   are async.
-- Rust keeps only the small log ring (Discord + backfill) — the webview
-  owns its 1000-line ring; the Tauri main process must stay **<30 MB RSS**
-  under load. Batching is the lever; report honestly in Phase 6
-  (`scripts/measure-rss.sh`; main vs WebKit helpers vs total).
+- Rust keeps only a small log ring for core needs (e.g. Discord/backfill), while the webview owns its larger console ring. Batching is used to limit re-render/IPC overhead and keep the main process lightweight.
 
 ## Packaging
 
