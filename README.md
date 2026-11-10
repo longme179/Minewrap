@@ -4,6 +4,20 @@ Fast, light desktop manager for Minecraft Java Edition servers (one or many, loc
 
 **AppImage (Linux x86_64) is the primary distribution.** Prebuilt AppImages are published on [GitHub Releases](https://github.com/longme179/Minewrap/releases).
 
+## Screenshots
+
+| Console | Settings |
+|:---:|:---:|
+| <img src="docs/screenshots/console-offline.png" width="440" alt="Console tab with server offline"><br>**Console** — live server logs, filtering, and command input | <img src="docs/screenshots/settings-launch.png" width="440" alt="Settings tab with launch configuration"><br>**Settings** — launch mode, Java runtime, RAM, probe, restart policy |
+
+| Properties | Mods |
+|:---:|:---:|
+| <img src="docs/screenshots/server-properties.png" width="440" alt="Properties tab showing raw server.properties"><br>**Properties** — edit `server.properties` directly, preserving comments and order | <img src="docs/screenshots/mods.png" width="440" alt="Mods tab listing installed mods"><br>**Mods** — search installed mods, see sizes, enable/disable |
+
+| Notifications | Console (server online) |
+|:---:|:---:|
+| <img src="docs/screenshots/notifications-discord.png" width="440" alt="Notifications tab with Discord webhook settings"><br>**Notifications** — Discord webhook status posts with write-only URL storage | <img src="docs/screenshots/console-online.png" width="440" alt="Console tab streaming live server logs"><br>**Console** — log stream backfill and live tail while the server runs |
+
 ## Quick start
 
 ### Run the AppImage
