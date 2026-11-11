@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/minewrap-core", "crates/minewrapd", "crates/minewrap-remote", "src-tauri"]
+members = [
+    "crates/minewrap-core",
+    "crates/minewrapd",
+    "crates/minewrap-remote",
+    "crates/minewrap-gui",
+    "src-tauri",
+]
 exclude = []
 
 [workspace.package]
