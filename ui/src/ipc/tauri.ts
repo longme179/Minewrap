@@ -41,6 +41,10 @@ export class TauriIpcAdapter implements IpcAdapter {
     return invoke<Action>("remove_node", { nodeId });
   }
 
+  async retryNode(nodeId: NodeId): Promise<Action> {
+    return invoke<Action>("retry_node", { nodeId });
+  }
+
   async listInstances(nodeId: NodeId): Promise<InstanceSummary[]> {
     return invoke<InstanceSummary[]>("list_instances", { nodeId });
   }

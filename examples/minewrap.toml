@@ -3,6 +3,11 @@
 host = "127.0.0.1"
 port = 8080
 data_dir = "./data"
+# SLP status poll interval (seconds) — the daemon probes every running
+# instance in parallel each tick (v1.10.0).
+status_poll_interval = 15.0
+# Failed probes before a running server shows `unresponsive`.
+unresponsive_after_failures = 2
 
 [[instances]]
 id = "survival"
@@ -11,6 +16,9 @@ work_dir = "/srv/minecraft/survival"
 java_path = "java"
 jvm_args = ["-Xms2G", "-Xmx4G"]
 launch_args = ["-jar", "server.jar", "nogui"]
+# v1.10.0: autostart is honoured by the daemon (owner task + Start at
+# load). Non-autostart instances cost no owner task until first start.
+autostart = false
 
 [instances.probe]
 port = 25565
@@ -22,3 +30,11 @@ max_retries = 5
 
 [instances.discord]
 enabled = false
+# webhook_url = "https://discord.com/api/webhooks/..."  # stored 0600, never returned by the API
+# Push mode: "edit-in-place" (PATCH one message) or "new-message".
+mode = "edit-in-place"
+# Periodic status push while online (v1.10.0 — was dead config in v1.9.3).
+interval_seconds = 600.0
+first_push_delay_seconds = 10.0
+state_change_posts = true
+state_change_debounce_seconds = 30.0

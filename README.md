@@ -4,7 +4,7 @@
 
 # Minewrap
 
-Fast, light desktop manager for Minecraft Java Edition servers (one or many, local or remote). A Tauri 2 + Svelte 5 app over a Tauri-free Rust core; the same core runs headless as `minewrapd` (axum REST+WebSocket) for always-on remote nodes and Discord posts.
+Fast, light desktop manager for Minecraft Java Edition servers (one or many, local or remote). A Tauri 2 + Svelte 5 app over a headless Rust daemon: since **v1.10.0** `minewrapd` (axum REST+WebSocket) is the always-on half — servers, SLP status polling and Discord posts keep running with the window closed — and the GUI is a pure client that auto-spawns it on demand.
 
 **AppImage (Linux x86_64) is the primary distribution.** Prebuilt AppImages are published on [GitHub Releases](https://github.com/longme179/Minewrap/releases).
 
@@ -32,6 +32,12 @@ chmod +x Minewrap-x86_64.AppImage
 ./Minewrap-x86_64.AppImage --appimage-extract-and-run
 ```
 
+### Build everything from source
+```bash
+./build.sh              # daemon + GUI AppImage (installs missing system deps via sudo)
+./build.sh --daemon-only  # headless host: just minewrapd
+```
+
 ### Run from source (development)
 ```bash
 # Build the UI
@@ -44,17 +50,23 @@ cargo run -p minewrap-tauri
 cargo run -p minewrapd -- --config examples/minewrap.toml
 ```
 
+> **v1.10.0:** closing the GUI no longer stops servers. The GUI
+> auto-spawns `minewrapd` and only disconnects on exit. To stop
+> everything: `systemctl --user stop minewrapd` (or `kill -TERM` the
+> daemon) — it stops every instance gracefully, then exits.
+
 See [`docs/BUILD_APPIMAGE.md`](docs/BUILD_APPIMAGE.md) for full AppImage build prerequisites and steps, and [`docs/remote-access.md`](docs/remote-access.md) for reaching a remote daemon over SSH port-forward.
 
 ## Repo layout
 
 ```
+build.sh               # build-from-source script (daemon-only or full AppImage)
 Cargo.toml             # Rust workspace
 Cargo.lock             # locked Rust dependencies (reproducible builds)
 crates/minewrap-core   # Tauri-free core: config, process, logs, poller, discord, properties, mods
-crates/minewrapd       # headless axum daemon (REST + WS)
-crates/minewrap-remote # reqwest client for remote nodes
-src-tauri/             # Tauri desktop app
+crates/minewrapd       # headless axum daemon (REST + WS): state keeper, SLP poller, Discord service
+src-tauri/             # Tauri desktop app — pure client (minewrap-remote, no core)
+crates/minewrap-remote # reqwest + WS client + shared DTOs (used by the GUI)
 ui/                    # Vite + Svelte + TypeScript frontend
 packaging/             # AppImage build script, AppRun/desktop, systemd unit
 examples/              # example config

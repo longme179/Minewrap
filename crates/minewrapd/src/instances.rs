@@ -62,20 +62,18 @@ impl InstanceManager {
             )
         };
         for cfg in configs {
+            let autostart = cfg.autostart;
+            let id = cfg.id.clone();
             let buf = Arc::new(Mutex::new(LogBuffer::new(defaults.log_buffer_lines)));
-            let manager = ProcessManager::new(
-                cfg.clone(),
-                defaults.clone(),
-                self.bus.clone(),
-                buf.clone(),
-                None,
-            );
-            let handle = manager.spawn();
             let state = InstanceState::new(
                 cfg.id.clone(),
                 cfg.display_name().to_string(),
                 unresponsive_after_failures,
             );
+            // D2-lite (task B8): owner tasks are spawned lazily — only
+            // `autostart` instances get one (and a Start) at load; the
+            // rest stay config-only until their first `start` (saves
+            // the old +0.75 MiB-per-offline-instance owner cost).
             self.instances
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -85,12 +83,101 @@ impl InstanceManager {
                         config: cfg,
                         buffer: buf,
                         state,
-                        handle: Some(handle),
+                        handle: None,
                         probe: ProbeInfo::default(),
                         last_error: None,
                     },
                 );
+            if autostart {
+                self.ensure_runtime(&id);
+                self.send_control(&id, Control::Start);
+            }
         }
+    }
+
+    /// Spawn the owner task for an instance on demand (D2-lite).
+    /// Returns false when the id is unknown.
+    pub fn ensure_runtime(&self, id: &str) -> bool {
+        let needs_spawn = {
+            let guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
+            guard.get(id).map(|m| m.handle.is_none()).unwrap_or(false)
+        };
+        if !needs_spawn {
+            return true;
+        }
+        let (config, defaults, unresponsive_after_failures, buffer) = {
+            let guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(m) = guard.get(id) else { return false };
+            let defaults = self
+                .daemon
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .daemon
+                .defaults
+                .clone();
+            let unresponsive = self
+                .daemon
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .daemon
+                .unresponsive_after_failures;
+            (m.config.clone(), defaults, unresponsive, m.buffer.clone())
+        };
+        let manager = ProcessManager::new(config, defaults, self.bus.clone(), buffer, None);
+        let handle = manager.spawn();
+        let mut guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
+        match guard.get_mut(id) {
+            Some(m) => {
+                m.handle = Some(handle);
+                m.state = InstanceState::new(
+                    id.to_string(),
+                    m.config.display_name().to_string(),
+                    unresponsive_after_failures,
+                );
+                m.last_error = None;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Start an instance (lazy-safe: spawns the owner task first).
+    pub fn start_instance(&self, id: &str) -> bool {
+        if !self.ensure_runtime(id) {
+            return false;
+        }
+        self.send_control(id, Control::Start)
+    }
+
+    /// Restart: graceful stop, wait for the state to settle, then a
+    /// fresh start (the v1.9.3 daemon fired Start while still
+    /// `stopping`, which the state machine ignored).
+    pub async fn restart_instance(&self, id: &str) -> bool {
+        if self.config_of(id).is_none() {
+            return false;
+        }
+        let (stop_timeout, kill_grace) = {
+            let daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                daemon.daemon.defaults.stop_timeout,
+                daemon.daemon.defaults.kill_grace_seconds,
+            )
+        };
+        self.send_control(id, Control::Stop);
+        let deadline = tokio::time::Instant::now()
+            + std::time::Duration::from_secs_f64(stop_timeout + kill_grace + 2.0);
+        loop {
+            let settled = matches!(
+                self.snapshot_of(id).map(|s| s.process.state),
+                None | Some(minewrap_core::ProcessState::Offline)
+                    | Some(minewrap_core::ProcessState::Crashed)
+            );
+            if settled || tokio::time::Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+        self.start_instance(id)
     }
 
     pub fn count(&self) -> usize {
@@ -231,19 +318,13 @@ impl InstanceManager {
             )
         };
         let buf = Arc::new(Mutex::new(LogBuffer::new(defaults.log_buffer_lines)));
-        let manager = ProcessManager::new(
-            cfg.clone(),
-            defaults.clone(),
-            self.bus.clone(),
-            buf.clone(),
-            None,
-        );
-        let handle = manager.spawn();
         let state = InstanceState::new(
             cfg.id.clone(),
             cfg.display_name().to_string(),
             unresponsive_after_failures,
         );
+        let autostart = cfg.autostart;
+        let id = cfg.id.clone();
 
         {
             let mut daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
@@ -262,11 +343,15 @@ impl InstanceManager {
                     config: cfg,
                     buffer: buf,
                     state,
-                    handle: Some(handle),
+                    handle: None, // D2-lite: lazy owner task
                     probe: ProbeInfo::default(),
                     last_error: None,
                 },
             );
+        if autostart {
+            self.ensure_runtime(&id);
+            self.send_control(&id, Control::Start);
+        }
         self.notify_changed();
         Ok(())
     }
@@ -425,5 +510,44 @@ mod tests {
     fn snapshot_json_carries_last_error() {
         let mgr = InstanceManager::load(DaemonConfig::default(), Arc::new(EventBus::new()), None);
         assert!(mgr.snapshot_json("missing").is_none());
+    }
+
+    /// D2-lite (task B8): non-autostart instances load without an
+    /// owner task; `start_instance` spawns it on demand; autostart
+    /// instances get one immediately (observable via the spawn_failed
+    /// event their bad work dir produces).
+    #[tokio::test]
+    async fn lazy_owner_spawn_and_autostart() {
+        let mut auto = instance("auto");
+        auto.autostart = true;
+        auto.work_dir = "/nonexistent-minewrap-autostart-dir".into();
+        let manual = instance("manual");
+        let mut cfg = DaemonConfig::default();
+        cfg.instances = vec![auto, manual];
+        let bus = Arc::new(EventBus::new());
+        let mut sub = bus.subscribe("auto");
+        let mgr = InstanceManager::load(cfg, bus, None);
+
+        // manual: no owner until the first start.
+        assert!(mgr.runtime("manual").unwrap().get("manual").unwrap().handle.is_none());
+        assert!(mgr.start_instance("manual"));
+        assert!(mgr.runtime("manual").unwrap().get("manual").unwrap().handle.is_some());
+
+        // auto: the owner was spawned at load and Start was sent —
+        // with a broken work dir that yields the GapF same-state
+        // event instead of a panic.
+        let ev = tokio::time::timeout(std::time::Duration::from_secs(5), sub.rx.recv())
+            .await
+            .expect("autostart event within 5s")
+            .expect("bus alive");
+        match ev {
+            minewrap_core::Event::StateChange(sc) => {
+                assert!(sc.reason.contains("spawn_failed"), "reason: {}", sc.reason);
+            }
+            other => panic!("expected StateChange, got {other:?}"),
+        }
+
+        // start_instance on an unknown id reports false, not a panic.
+        assert!(!mgr.start_instance("ghost"));
     }
 }

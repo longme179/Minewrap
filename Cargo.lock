@@ -1874,7 +1874,7 @@ checksum = "d5848f5a9e8117cf94f2f90faac24a87ff81600ff8628c1e3deaab572e76bfa1"
 
 [[package]]
 name = "minewrap-core"
-version = "1.9.3"
+version = "1.10.0"
 dependencies = [
  "chrono",
  "regex",
@@ -1887,35 +1887,36 @@ dependencies = [
 
 [[package]]
 name = "minewrap-remote"
-version = "1.9.3"
+version = "1.10.0"
 dependencies = [
+ "chrono",
  "futures-util",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tokio",
  "tokio-tungstenite 0.24.0",
+ "toml 0.8.23",
 ]
 
 [[package]]
 name = "minewrap-tauri"
-version = "1.9.3"
+version = "1.10.0"
 dependencies = [
- "chrono",
- "minewrap-core",
+ "futures-util",
  "minewrap-remote",
- "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tokio",
+ "tokio-tungstenite 0.24.0",
 ]
 
 [[package]]
 name = "minewrapd"
-version = "1.9.3"
+version = "1.10.0"
 dependencies = [
  "anyhow",
  "axum",

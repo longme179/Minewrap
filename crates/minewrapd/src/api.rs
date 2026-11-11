@@ -346,7 +346,7 @@ async fn instance_start(
         )
             .into_response();
     }
-    let ok = mgr.send_control(&id, minewrap_core::Control::Start);
+    let ok = mgr.start_instance(&id);
     Json(json!({"ok": ok})).into_response()
 }
 
@@ -390,9 +390,8 @@ async fn instance_restart(
         )
             .into_response();
     }
-    mgr.send_control(&id, minewrap_core::Control::Stop);
-    mgr.send_control(&id, minewrap_core::Control::Start);
-    Json(json!({"ok": true})).into_response()
+    let ok = mgr.restart_instance(&id).await;
+    Json(json!({"ok": ok})).into_response()
 }
 
 async fn instance_command(
