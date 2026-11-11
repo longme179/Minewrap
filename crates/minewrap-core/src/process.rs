@@ -104,7 +104,9 @@ pub const BATCH_MAX_LINES: usize = 100;
 
 /// Spawn the fake/real server and return `(child)`. The piped stdout/stderr
 /// are copied into one bounded channel; the reader task is owned by the caller.
-pub async fn spawn_server(config: &InstanceConfig) -> Result<(Child, mpsc::Receiver<String>), String> {
+pub async fn spawn_server(
+    config: &InstanceConfig,
+) -> Result<(Child, mpsc::Receiver<String>), String> {
     let work_dir = Path::new(&config.work_dir);
     if !work_dir.exists() {
         return Err(format!("work dir does not exist: {}", config.work_dir));
@@ -341,10 +343,12 @@ impl ProcessManager {
     pub fn status(&self) -> ProcessStatus {
         let uptime = self
             .started_at
-            .filter(|_| matches!(
-                self.state,
-                ProcessState::Starting | ProcessState::Online | ProcessState::Stopping
-            ))
+            .filter(|_| {
+                matches!(
+                    self.state,
+                    ProcessState::Starting | ProcessState::Online | ProcessState::Stopping
+                )
+            })
             .map(|t| (Utc::now() - t).num_milliseconds() as f64 / 1000.0);
         ProcessStatus {
             state: self.state,
@@ -365,7 +369,10 @@ impl ProcessManager {
         if old == new {
             return;
         }
-        assert!(allowed_next(old).contains(&new), "invalid transition {old:?} -> {new:?}");
+        assert!(
+            allowed_next(old).contains(&new),
+            "invalid transition {old:?} -> {new:?}"
+        );
         self.state = new;
         self.bus.publish(&Event::StateChange(StateChange {
             instance_id: self.config.id.clone(),
@@ -430,7 +437,20 @@ impl ProcessManager {
                                         self.config.id.clone(),
                                     ));
                                 }
-                                Err(e) => self.transition(ProcessState::Crashed, &format!("spawn_failed: {e}")),
+                                Err(e) => {
+                                    // GapF (found v1.9.3): a failed spawn from
+                                    // `Offline` has no valid transition to
+                                    // `Crashed` (the table only allows
+                                    // Offline -> Starting), so the old
+                                    // `transition()` assert panicked the
+                                    // owner task and left the instance deaf
+                                    // while the daemon lived on. Stay in the
+                                    // current state and publish a same-state
+                                    // change so subscribers (state keeper,
+                                    // Discord service) can record the
+                                    // reason; the owner task stays alive.
+                                    self.publish_spawn_failed(&e);
+                                }
                             }
                         }
                         Control::Stop => {
@@ -597,6 +617,20 @@ impl ProcessManager {
         }
     }
 
+    /// Same-state failure event for spawn errors (GapF): keeps the
+    /// state machine intact while telling subscribers why nothing
+    /// happened. `old_state == new_state` never occurs from
+    /// `transition()`, so this shape is unambiguous.
+    fn publish_spawn_failed(&self, e: &str) {
+        let current = state_str(self.state);
+        self.bus.publish(&Event::StateChange(StateChange {
+            instance_id: self.config.id.clone(),
+            old_state: current.clone(),
+            new_state: current,
+            reason: format!("spawn_failed: {e}"),
+        }));
+    }
+
     #[allow(dead_code)]
     async fn do_spawn(&mut self) -> Result<mpsc::Receiver<String>, String> {
         match spawn_server(&self.config).await {
@@ -618,21 +652,27 @@ impl ProcessManager {
         self.crash_count += 1;
         let policy = &self.config.restart;
         if policy.policy == "on-crash" && self.crash_count <= policy.max_retries {
-            let delay = (policy.backoff_base_seconds * 2f64.powi(self.crash_count.saturating_sub(1) as i32))
-                .min(policy.backoff_max_seconds);
+            let delay = (policy.backoff_base_seconds
+                * 2f64.powi(self.crash_count.saturating_sub(1) as i32))
+            .min(policy.backoff_max_seconds);
             tokio::time::sleep(Duration::from_secs_f64(delay)).await;
             if self.state == ProcessState::Crashed {
                 self.restart_count += 1;
-                if let Ok((child, rx)) = spawn_server(&self.config).await {
-                    self.child = Some(child);
-                    self.transition(ProcessState::Starting, "start_requested");
-                    self.started_at = Some(Utc::now());
-                    *reader = Some(spawn_reader(
-                        rx,
-                        self.buffer.clone(),
-                        self.bus.clone(),
-                        self.config.id.clone(),
-                    ));
+                match spawn_server(&self.config).await {
+                    Ok((child, rx)) => {
+                        self.child = Some(child);
+                        self.transition(ProcessState::Starting, "start_requested");
+                        self.started_at = Some(Utc::now());
+                        *reader = Some(spawn_reader(
+                            rx,
+                            self.buffer.clone(),
+                            self.bus.clone(),
+                            self.config.id.clone(),
+                        ));
+                    }
+                    // Restart attempt failed: stay `Crashed`, surface the
+                    // reason (GapF — never panic the owner task).
+                    Err(e) => self.publish_spawn_failed(&e),
                 }
             }
         } else {
@@ -659,6 +699,7 @@ mod libc {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn transition_table_matches_v1() {
@@ -666,6 +707,62 @@ mod tests {
         assert!(allowed_next(ProcessState::Online).contains(&ProcessState::Stopping));
         assert!(!allowed_next(ProcessState::Online).contains(&ProcessState::Offline));
         assert!(allowed_next(ProcessState::Crashed).contains(&ProcessState::Starting));
+    }
+
+    /// GapF regression (v1.9.3): `Control::Start` with a failing spawn
+    /// used to hit the `Offline -> Crashed` assert and kill the owner
+    /// task. It must instead publish a same-state `spawn_failed` event
+    /// and keep the owner responsive.
+    #[tokio::test]
+    async fn start_spawn_failure_publishes_event_and_keeps_owner_alive() {
+        let bus = Arc::new(EventBus::new());
+        let mut sub = bus.subscribe("gapf");
+        let buf = Arc::new(Mutex::new(LogBuffer::new(16)));
+        let cfg = crate::config::InstanceConfig {
+            id: "gapf".into(),
+            name: String::new(),
+            work_dir: "/nonexistent-minewrap-test-dir".into(),
+            java_path: "java".into(),
+            jvm_args: vec![],
+            launch_args: vec![],
+            autostart: false,
+            probe: crate::config::ProbeConfig::default(),
+            restart: crate::config::RestartConfig::default(),
+            rcon: None,
+            discord: crate::config::DiscordConfig::default(),
+        };
+        let mgr = ProcessManager::new(
+            cfg,
+            crate::config::InstanceDefaults::default(),
+            bus.clone(),
+            buf,
+            None,
+        );
+        let handle = mgr.spawn();
+
+        handle.ctrl_tx.send(Control::Start).await.unwrap();
+        let ev = tokio::time::timeout(Duration::from_secs(5), sub.rx.recv())
+            .await
+            .expect("event within 5s")
+            .expect("bus alive");
+        match ev {
+            Event::StateChange(sc) => {
+                assert_eq!(sc.old_state, "offline");
+                assert_eq!(sc.new_state, "offline");
+                assert!(sc.reason.contains("spawn_failed"), "reason: {}", sc.reason);
+            }
+            other => panic!("expected StateChange, got {other:?}"),
+        }
+
+        // Owner must still respond: a second Start produces another
+        // spawn_failed event instead of silence (dead task).
+        handle.ctrl_tx.send(Control::Start).await.unwrap();
+        let ev2 = tokio::time::timeout(Duration::from_secs(5), sub.rx.recv())
+            .await
+            .expect("second event within 5s");
+        assert!(matches!(ev2, Some(Event::StateChange(_))));
+
+        handle.ctrl_tx.send(Control::Shutdown).await.unwrap();
     }
 
     #[test]

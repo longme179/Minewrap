@@ -87,11 +87,7 @@ impl LogBuffer {
 
     /// Everything since (exclusive) `seq`.
     pub fn since(&self, seq: u64) -> Vec<LogLine> {
-        self.lines
-            .iter()
-            .filter(|l| l.seq > seq)
-            .cloned()
-            .collect()
+        self.lines.iter().filter(|l| l.seq > seq).cloned().collect()
     }
 
     pub fn first_seq(&self) -> Option<u64> {

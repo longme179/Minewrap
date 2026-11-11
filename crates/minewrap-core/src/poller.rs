@@ -15,7 +15,7 @@ use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::config::ProbeConfig;
-use crate::process::{ProcessStatus, ProcessState};
+use crate::process::{ProcessState, ProcessStatus};
 
 /// Probe result (parity with v1 `ProbeInfo`).
 #[derive(Debug, Clone, Serialize)]
@@ -124,6 +124,13 @@ impl InstanceState {
         self.probe = info;
     }
 
+    /// Clear the probe-failure streak. Called when a fresh start begins
+    /// so stale failures from a previous run cannot mark the new run
+    /// `unresponsive` before its first probe lands.
+    pub fn reset_failures(&mut self) {
+        self.failures = 0;
+    }
+
     pub fn combined_state(&self) -> String {
         match self.process.state {
             ProcessState::Online => {
@@ -217,11 +224,7 @@ pub fn packet(payload: &[u8]) -> Vec<u8> {
 }
 
 /// Status round-trip: handshake + status request + JSON parse (best-effort).
-pub async fn request_status(
-    host: &str,
-    port: u16,
-    timeout: Duration,
-) -> Result<RawStatus, String> {
+pub async fn request_status(host: &str, port: u16, timeout: Duration) -> Result<RawStatus, String> {
     let addr = format!("{host}:{port}");
     let stream = tokio::net::TcpStream::connect(&addr)
         .await
@@ -250,39 +253,62 @@ pub async fn request_status(
         .await
         .map_err(|e| format!("write: {e}"))?;
 
-    // read framed response: length, packet id (0x00), JSON string
-    let mut header = [0u8; 5];
-    let n = tokio::time::timeout(timeout, stream.read(&mut header))
-        .await
-        .map_err(|_| "read timeout".to_string())?
-        .map_err(|e| format!("read: {e}"))?;
-    if n == 0 {
-        return Err("empty response".into());
+    // Read the framed response. v1.9.3 never exercised this path (the
+    // poller had zero callers — gap G3) and its offset math was wrong
+    // when the first read returned the full 5-byte header. Read the
+    // length varint byte-by-byte, then exactly `length` payload bytes.
+    let mut length: i32 = 0;
+    let mut shift = 0;
+    loop {
+        let mut one = [0u8; 1];
+        let n = tokio::time::timeout(timeout, stream.read(&mut one))
+            .await
+            .map_err(|_| "read timeout".to_string())?
+            .map_err(|e| format!("read: {e}"))?;
+        if n == 0 {
+            return Err("empty response".into());
+        }
+        length |= ((one[0] & 0x7F) as i32) << shift;
+        shift += 7;
+        if one[0] & 0x80 == 0 {
+            break;
+        }
+        if shift >= 35 {
+            return Err("length varint too long".into());
+        }
     }
-    let (length, off) = read_varint(&header[..n], 0)?;
-    let total = length as usize + 5; // varint length field + payload
-    let mut buf = vec![0u8; total.min(MAX_PACKET)];
-    let n2 = tokio::time::timeout(timeout, stream.read(&mut buf))
-        .await
-        .map_err(|_| "read timeout".to_string())?
-        .map_err(|e| format!("read: {e}"))?;
-    if n2 < 2 {
-        return Err("short response".into());
+    let length = length as usize;
+    if length == 0 || length > MAX_PACKET {
+        return Err(format!("invalid packet length {length}"));
     }
-    let (_pid, off) = read_varint(&buf[..n2], off)?;
-    let (json_len, off2) = read_varint(&buf[..n2], off)?;
-    let start = off2;
-    let end = (start + json_len as usize).min(n2);
-    if end > n2 {
+    let mut payload = vec![0u8; length];
+    let mut filled = 0usize;
+    while filled < length {
+        let n = tokio::time::timeout(timeout, stream.read(&mut payload[filled..]))
+            .await
+            .map_err(|_| "read timeout".to_string())?
+            .map_err(|e| format!("read: {e}"))?;
+        if n == 0 {
+            return Err("truncated payload".into());
+        }
+        filled += n;
+    }
+    // Payload: packet id (0x00), string length varint, JSON bytes.
+    let (pid, off) = read_varint(&payload, 0)?;
+    if pid != 0 {
+        return Err(format!("unexpected packet id {pid}"));
+    }
+    let (json_len, off2) = read_varint(&payload, off)?;
+    let end = (off2 + json_len as usize).min(payload.len());
+    if end <= off2 {
         return Err("truncated json".into());
     }
-    parse_status_json(&buf[start..end])
+    parse_status_json(&payload[off2..end])
 }
 
 /// Parse the SLP status JSON (best-effort; ignores unknown fields).
 pub fn parse_status_json(json: &[u8]) -> Result<RawStatus, String> {
-    let v: serde_json::Value = serde_json::from_slice(json)
-        .map_err(|e| format!("json: {e}"))?;
+    let v: serde_json::Value = serde_json::from_slice(json).map_err(|e| format!("json: {e}"))?;
     let version_name = v
         .get("version")
         .and_then(|x| x.get("name"))
@@ -453,13 +479,22 @@ mod tests {
             checked_at: None,
         });
         assert_eq!(state.combined_state(), "online");
-        state.update_probe(ProbeInfo { error: Some("x".into()), ..ProbeInfo::default() });
+        state.update_probe(ProbeInfo {
+            error: Some("x".into()),
+            ..ProbeInfo::default()
+        });
         assert_eq!(state.combined_state(), "online"); // tolerated transient
-        state.update_probe(ProbeInfo { error: Some("x".into()), ..ProbeInfo::default() });
+        state.update_probe(ProbeInfo {
+            error: Some("x".into()),
+            ..ProbeInfo::default()
+        });
         assert_eq!(state.combined_state(), "unresponsive");
         // probe failure never reports offline while running
         assert_ne!(state.combined_state(), "offline");
-        let proc = ProcessStatus { state: ProcessState::Crashed, ..proc };
+        let proc = ProcessStatus {
+            state: ProcessState::Crashed,
+            ..proc
+        };
         state.update_process(proc);
         assert_eq!(state.combined_state(), "crashed");
     }
@@ -473,8 +508,16 @@ pub struct Poller {
 }
 
 impl Poller {
-    pub fn new<F: Fn(ProbeInfo) + Send + 'static>(config: ProbeConfig, interval: Duration, on_result: F) -> Self {
-        Self { config, interval, on_result: Box::new(on_result) }
+    pub fn new<F: Fn(ProbeInfo) + Send + 'static>(
+        config: ProbeConfig,
+        interval: Duration,
+        on_result: F,
+    ) -> Self {
+        Self {
+            config,
+            interval,
+            on_result: Box::new(on_result),
+        }
     }
 
     pub async fn run(self, mut stop: tokio::sync::oneshot::Receiver<()>) {

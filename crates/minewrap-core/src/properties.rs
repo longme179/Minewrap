@@ -131,20 +131,37 @@ pub fn validate_property(key: &str, value: &str) -> Result<(), String> {
         }
         "gamemode" => match value {
             "survival" | "creative" | "adventure" | "spectator" => Ok(()),
-            other => Err(format!("gamemode must be survival|creative|adventure|spectator, got {other:?}")),
+            other => Err(format!(
+                "gamemode must be survival|creative|adventure|spectator, got {other:?}"
+            )),
         },
         "difficulty" => match value {
             "peaceful" | "easy" | "normal" | "hard" => Ok(()),
-            other => Err(format!("difficulty must be peaceful|easy|normal|hard, got {other:?}")),
+            other => Err(format!(
+                "difficulty must be peaceful|easy|normal|hard, got {other:?}"
+            )),
         },
         "level-type" => Ok(()), // free-form
-        "online-mode" | "pvp" | "enable-command-block" | "spawn-monsters" | "spawn-animals" | "spawn-npcs" | "hide-online-players" | "force-gamemode" | "broadcast-console-to-ops" | "snooper-enabled" | "enable-rcon" | "motd" => Ok(()),
+        "online-mode"
+        | "pvp"
+        | "enable-command-block"
+        | "spawn-monsters"
+        | "spawn-animals"
+        | "spawn-npcs"
+        | "hide-online-players"
+        | "force-gamemode"
+        | "broadcast-console-to-ops"
+        | "snooper-enabled"
+        | "enable-rcon"
+        | "motd" => Ok(()),
         _ => Ok(()), // unknown keys pass through
     }
 }
 
 fn validate_int_range(key: &str, value: &str, lo: u32, hi: u32) -> Result<(), String> {
-    let v: u32 = value.parse().map_err(|_| format!("{key} must be an integer"))?;
+    let v: u32 = value
+        .parse()
+        .map_err(|_| format!("{key} must be an integer"))?;
     if !(lo..=hi).contains(&v) {
         return Err(format!("{key} must be between {lo} and {hi}, got {value}"));
     }

@@ -96,10 +96,7 @@ pub fn parse_release(text: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for line in text.lines() {
         if let Some((k, v)) = line.split_once('=') {
-            map.insert(
-                k.trim().to_string(),
-                v.trim().trim_matches('"').to_string(),
-            );
+            map.insert(k.trim().to_string(), v.trim().trim_matches('"').to_string());
         }
     }
     map
@@ -236,12 +233,7 @@ fn dedupe(runtimes: Vec<JavaRuntime>) -> Vec<JavaRuntime> {
 /// 21 → 1.20.5+).
 pub fn min_java_for_minecraft(mc: &str) -> Option<u8> {
     // Ranged table, longest-prefix match: 1.20.x < 1.20.5 → 17.
-    const RANGES: &[(&str, u8)] = &[
-        ("1.17", 16),
-        ("1.18", 17),
-        ("1.19", 17),
-        ("1.20.5", 21),
-    ];
+    const RANGES: &[(&str, u8)] = &[("1.17", 16), ("1.18", 17), ("1.19", 17), ("1.20.5", 21)];
     if mc.starts_with("1.20.") && !mc.starts_with("1.20.5") {
         return Some(17);
     }
@@ -316,7 +308,10 @@ JDK_VERSION="21.0.2"
         .unwrap();
         let out = scan_dir(&dir, "system");
         assert_eq!(out.len(), 2);
-        let t = out.iter().find(|r| r.home.to_string_lossy().contains("temurin")).unwrap();
+        let t = out
+            .iter()
+            .find(|r| r.home.to_string_lossy().contains("temurin"))
+            .unwrap();
         assert_eq!(t.major, Some(21));
         let _ = std::fs::remove_dir_all(&dir);
     }

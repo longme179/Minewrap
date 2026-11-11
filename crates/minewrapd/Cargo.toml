@@ -19,3 +19,6 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "allo
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 futures-util = "0.3"
 anyhow = "1"
+
+[dev-dependencies]
+tokio-tungstenite = "0.24"

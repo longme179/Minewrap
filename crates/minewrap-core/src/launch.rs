@@ -62,11 +62,7 @@ pub fn scan_work_dir(work_dir: &Path) -> Vec<LaunchCandidate> {
             let (ty, ver) = inspect_jar(&path);
             let min_java = ver.as_deref().and_then(min_java_for_minecraft);
             out.push(LaunchCandidate {
-                suggested_launch_args: vec![
-                    "-jar".into(),
-                    name.clone(),
-                    "nogui".into(),
-                ],
+                suggested_launch_args: vec!["-jar".into(), name.clone(), "nogui".into()],
                 path,
                 kind: LaunchKind::Jar,
                 server_type: ty,
@@ -97,7 +93,11 @@ pub fn scan_work_dir(work_dir: &Path) -> Vec<LaunchCandidate> {
     let libs = work_dir.join("libraries");
     if libs.exists() {
         for found in walk_files(&libs, 3) {
-            if found.file_name().map(|s| s == "unix_args.txt").unwrap_or(false) {
+            if found
+                .file_name()
+                .map(|s| s == "unix_args.txt")
+                .unwrap_or(false)
+            {
                 if let Ok(rel) = found.strip_prefix(work_dir) {
                     out.push(LaunchCandidate {
                         suggested_launch_args: vec![
@@ -174,18 +174,24 @@ fn find_zip_entry(zip: &[u8], wanted: &str) -> Option<Vec<u8>> {
         return None;
     }
     // EOCD is at the end; take the last occurrence.
-    let eocd = zip
-        .windows(4)
-        .rposition(|w| w == b"PK\x05\x06")?;
+    let eocd = zip.windows(4).rposition(|w| w == b"PK\x05\x06")?;
     if eocd + 22 > zip.len() {
         return None;
     }
-    let u32 = |i: usize| u32::from_le_bytes([zip[eocd + i], zip[eocd + i + 1], zip[eocd + i + 2], zip[eocd + i + 3]]) as usize;
+    let u32 = |i: usize| {
+        u32::from_le_bytes([
+            zip[eocd + i],
+            zip[eocd + i + 1],
+            zip[eocd + i + 2],
+            zip[eocd + i + 3],
+        ]) as usize
+    };
     let cd_offset = u32(16);
     let mut p = cd_offset;
     while p + 46 <= zip.len() && &zip[p..p + 4] == b"PK\x01\x02" {
         let method = u16::from_le_bytes([zip[p + 10], zip[p + 11]]);
-        let compressed_size = u32::from_le_bytes([zip[p + 20], zip[p + 21], zip[p + 22], zip[p + 23]]) as usize;
+        let compressed_size =
+            u32::from_le_bytes([zip[p + 20], zip[p + 21], zip[p + 22], zip[p + 23]]) as usize;
         let name_len = u16::from_le_bytes([zip[p + 28], zip[p + 29]]) as usize;
         let extra_len = u16::from_le_bytes([zip[p + 30], zip[p + 31]]) as usize;
         let comment_len = u16::from_le_bytes([zip[p + 32], zip[p + 33]]) as usize;
@@ -193,7 +199,8 @@ fn find_zip_entry(zip: &[u8], wanted: &str) -> Option<Vec<u8>> {
         let name = std::str::from_utf8(&zip[header..header + name_len]).ok()?;
         if name == wanted && method == 0 {
             // Stored (method 0) — local header at the offset.
-            let lo = u32::from_le_bytes([zip[p + 42], zip[p + 43], zip[p + 44], zip[p + 45]]) as usize;
+            let lo =
+                u32::from_le_bytes([zip[p + 42], zip[p + 43], zip[p + 44], zip[p + 45]]) as usize;
             if lo + 30 <= zip.len() && &zip[lo..lo + 4] == b"PK\x03\x04" {
                 let lname = u16::from_le_bytes([zip[lo + 26], zip[lo + 27]]) as usize;
                 let lextra = u16::from_le_bytes([zip[lo + 28], zip[lo + 29]]) as usize;
@@ -318,7 +325,8 @@ pub fn report_work_dir(dir: &Path) -> WorkDirReport {
         .collect();
     r.jar_candidates = seen.into_iter().collect();
     if !r.has_server_properties {
-        r.notes.push("No server.properties yet (created on first run)".into());
+        r.notes
+            .push("No server.properties yet (created on first run)".into());
     }
     if !r.has_eula {
         r.notes.push("No eula.txt yet".into());
@@ -341,7 +349,11 @@ mod tests {
         std::fs::write(dir.join("server.jar"), b"PK").unwrap();
         std::fs::write(dir.join("run.sh"), b"#!/bin/sh\n").unwrap();
         std::fs::write(dir.join("user_jvm_args.txt"), b"-Xmx2G\n").unwrap();
-        std::fs::write(dir.join("libraries/net/minecraft/unix_args.txt"), b"@args\n").unwrap();
+        std::fs::write(
+            dir.join("libraries/net/minecraft/unix_args.txt"),
+            b"@args\n",
+        )
+        .unwrap();
         let out = scan_work_dir(&dir);
         assert!(out.iter().any(|c| c.kind == LaunchKind::Jar));
         assert!(out.iter().any(|c| c.kind == LaunchKind::Script));

@@ -244,7 +244,11 @@ pub fn load_message_id(state_dir: &std::path::Path, instance_id: &str) -> Option
     Some(id.to_string())
 }
 
-pub fn save_message_id(state_dir: &std::path::Path, instance_id: &str, message_id: &str) -> Result<(), String> {
+pub fn save_message_id(
+    state_dir: &std::path::Path,
+    instance_id: &str,
+    message_id: &str,
+) -> Result<(), String> {
     std::fs::create_dir_all(state_dir).map_err(|e| e.to_string())?;
     let path = state_path(state_dir, instance_id);
     let data = serde_json::json!({"message_id": message_id});
@@ -276,16 +280,37 @@ pub struct Notifier {
 }
 
 impl Notifier {
-    pub fn new(config: DiscordConfig, http: reqwest::Client, state_dir: PathBuf, instance_id: String) -> Self {
-        Self { config, http, state_dir, instance_id }
+    pub fn new(
+        config: DiscordConfig,
+        http: reqwest::Client,
+        state_dir: PathBuf,
+        instance_id: String,
+    ) -> Self {
+        Self {
+            config,
+            http,
+            state_dir,
+            instance_id,
+        }
     }
 
     pub fn enabled(&self) -> bool {
-        self.config.enabled && self.config.webhook_url.as_ref().map(|s| !s.is_empty()).unwrap_or(false)
+        self.config.enabled
+            && self
+                .config
+                .webhook_url
+                .as_ref()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false)
     }
 
     pub fn webhook(&self) -> String {
-        self.config.webhook_url.clone().unwrap_or_default().trim_end_matches('/').to_string()
+        self.config
+            .webhook_url
+            .clone()
+            .unwrap_or_default()
+            .trim_end_matches('/')
+            .to_string()
     }
 
     pub fn message_id(&self) -> Option<String> {
@@ -299,7 +324,10 @@ impl Notifier {
     /// Test push (v1 `send_test`).
     pub async fn send_test(&self, snapshot: &InstanceSnapshot) -> DiscordTestResult {
         if !self.enabled() {
-            return DiscordTestResult { ok: false, error: Some("discord is disabled or no webhook is configured".into()) };
+            return DiscordTestResult {
+                ok: false,
+                error: Some("discord is disabled or no webhook is configured".into()),
+            };
         }
         let embed = serde_json::json!({
             "title": format!("minewrap test message — {}", snapshot.name).chars().take(TITLE_LIMIT).collect::<String>(),
@@ -308,20 +336,40 @@ impl Notifier {
             "fields": [{"name":"State","value": snapshot.combined_state, "inline":true}],
             "timestamp": Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         });
-        match self.request(&format!("{}?wait=true", self.webhook()), "POST", &embed).await {
-            Ok((status, _)) if status < 400 => DiscordTestResult { ok: true, error: None },
-            Ok((status, _)) => DiscordTestResult { ok: false, error: Some(format!("discord request failed: HTTP {status}")) },
-            Err(e) => DiscordTestResult { ok: false, error: Some(format!("discord request failed: {e}")) },
+        match self
+            .request(&format!("{}?wait=true", self.webhook()), "POST", &embed)
+            .await
+        {
+            Ok((status, _)) if status < 400 => DiscordTestResult {
+                ok: true,
+                error: None,
+            },
+            Ok((status, _)) => DiscordTestResult {
+                ok: false,
+                error: Some(format!("discord request failed: HTTP {status}")),
+            },
+            Err(e) => DiscordTestResult {
+                ok: false,
+                error: Some(format!("discord request failed: {e}")),
+            },
         }
     }
 
     /// Create or edit the status message (v1 `push_status_once`).
-    pub async fn push_status(&self, snapshot: &InstanceSnapshot, lines: &[LogLine]) -> Result<(), String> {
+    pub async fn push_status(
+        &self,
+        snapshot: &InstanceSnapshot,
+        lines: &[LogLine],
+    ) -> Result<(), String> {
         let embed = build_status_embed(snapshot, lines, self.config.max_log_chars);
         if self.config.mode == "edit-in-place" {
             if let Some(msg_id) = self.message_id() {
                 let (status, _) = self
-                    .request(&format!("{}/messages/{}", self.webhook(), msg_id), "PATCH", &embed)
+                    .request(
+                        &format!("{}/messages/{}", self.webhook(), msg_id),
+                        "PATCH",
+                        &embed,
+                    )
                     .await?;
                 if status == 404 {
                     // message deleted: fall through to create
@@ -330,7 +378,9 @@ impl Notifier {
                 }
             }
         }
-        let (status, body) = self.request(&format!("{}?wait=true", self.webhook()), "POST", &embed).await?;
+        let (status, body) = self
+            .request(&format!("{}?wait=true", self.webhook()), "POST", &embed)
+            .await?;
         if status >= 400 {
             return Err(format!("discord create failed: HTTP {status}"));
         }
@@ -343,33 +393,52 @@ impl Notifier {
     }
 
     /// Internal request with 429/5xx retries (v1 `_request`).
-    pub async fn request(&self, url: &str, method: &str, payload: &serde_json::Value) -> Result<(u16, serde_json::Value), String> {
+    pub async fn request(
+        &self,
+        url: &str,
+        method: &str,
+        payload: &serde_json::Value,
+    ) -> Result<(u16, serde_json::Value), String> {
         let masked = mask_webhook_url(url);
         let mut attempt = 0;
         let body_payload = serde_json::json!({ "embeds": [payload] });
         loop {
             attempt += 1;
-            let req = self.http
-                .request(match method { "POST" => reqwest::Method::POST, _ => reqwest::Method::PATCH }, url)
+            let req = self
+                .http
+                .request(
+                    match method {
+                        "POST" => reqwest::Method::POST,
+                        _ => reqwest::Method::PATCH,
+                    },
+                    url,
+                )
                 .json(&body_payload);
-            let resp = req.send().await.map_err(|e| format!("discord request failed for {masked}: {e}"))?;
-            let status = resp.status().as_u16();
-            let body: serde_json::Value = resp
-                .json()
+            let resp = req
+                .send()
                 .await
-                .unwrap_or(serde_json::json!({}));
+                .map_err(|e| format!("discord request failed for {masked}: {e}"))?;
+            let status = resp.status().as_u16();
+            let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!({}));
             if status == 429 {
-                let retry_after = (body.get("retry_after").and_then(|v| v.as_f64()).unwrap_or(1.0) as u64)
+                let retry_after = (body
+                    .get("retry_after")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(1.0) as u64)
                     .min(60);
                 if attempt >= 3 {
-                    return Err(format!("discord rate limited for {masked} (tried {attempt}x)"));
+                    return Err(format!(
+                        "discord rate limited for {masked} (tried {attempt}x)"
+                    ));
                 }
                 tokio::time::sleep(Duration::from_millis(50 + retry_after * 1000)).await;
                 continue;
             }
             if status >= 500 {
                 if attempt >= 3 {
-                    return Err(format!("discord HTTP {status} for {masked} (tried {attempt}x)"));
+                    return Err(format!(
+                        "discord HTTP {status} for {masked} (tried {attempt}x)"
+                    ));
                 }
                 tokio::time::sleep(Duration::from_millis(50 * (1 << (attempt - 1)))).await;
                 continue;
@@ -429,7 +498,10 @@ mod tests {
 
     #[test]
     fn redact_keeps_timestamps() {
-        assert_eq!(redact_line("[01:48:51] [Server thread/INFO]: Done"), "[01:48:51] [Server thread/INFO]: Done");
+        assert_eq!(
+            redact_line("[01:48:51] [Server thread/INFO]: Done"),
+            "[01:48:51] [Server thread/INFO]: Done"
+        );
     }
 
     #[test]
@@ -462,7 +534,11 @@ mod tests {
     #[test]
     fn log_block_trims_oldest() {
         let lines: Vec<LogLine> = (0..20)
-            .map(|i| LogLine { seq: i as u64, ts: Utc::now(), line: format!("line {i} {}", "x".repeat(20)) })
+            .map(|i| LogLine {
+                seq: i as u64,
+                ts: Utc::now(),
+                line: format!("line {i} {}", "x".repeat(20)),
+            })
             .collect();
         let block = log_block(&lines, 100);
         assert!(block.contains("line 19"));

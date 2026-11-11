@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use minewrap_core::{
-    Control, DaemonConfig, Event, EventBus, InstanceConfig, InstanceState, LogBuffer, ProbeInfo,
-    ProcessManager,
+    Control, DaemonConfig, Event, EventBus, InstanceConfig, InstanceState, LogBuffer, ProbeConfig,
+    ProbeInfo, ProcessManager,
 };
 
 /// Per-instance runtime (parity with v1 `ManagedInstance`).
@@ -22,6 +22,9 @@ pub struct ManagedInstance {
     pub state: InstanceState,
     pub handle: Option<minewrap_core::OwnerHandle>,
     pub probe: ProbeInfo,
+    /// Last failure reason (spawn_failed / crash tail), surfaced in
+    /// the snapshot JSON as `last_error` (GUI parity).
+    pub last_error: Option<String>,
 }
 
 /// Owns every instance + the shared bus; request handlers go through it.
@@ -30,15 +33,20 @@ pub struct InstanceManager {
     pub bus: Arc<EventBus>,
     pub daemon: Mutex<DaemonConfig>,
     pub config_path: Option<String>,
+    /// Structural-change notifications (instance added/removed) for
+    /// the `/events` WebSocket.
+    changes: tokio::sync::broadcast::Sender<()>,
 }
 
 impl InstanceManager {
     pub fn load(config: DaemonConfig, bus: Arc<EventBus>, config_path: Option<String>) -> Self {
+        let (changes, _) = tokio::sync::broadcast::channel(8);
         let mut mgr = Self {
             instances: Mutex::new(HashMap::new()),
             bus: bus.clone(),
             daemon: Mutex::new(config),
             config_path,
+            changes,
         };
         mgr.start_all();
         mgr
@@ -79,6 +87,7 @@ impl InstanceManager {
                         state,
                         handle: Some(handle),
                         probe: ProbeInfo::default(),
+                        last_error: None,
                     },
                 );
         }
@@ -100,7 +109,10 @@ impl InstanceManager {
             .collect()
     }
 
-    pub fn runtime(&self, _id: &str) -> Option<std::sync::MutexGuard<'_, HashMap<String, ManagedInstance>>> {
+    pub fn runtime(
+        &self,
+        _id: &str,
+    ) -> Option<std::sync::MutexGuard<'_, HashMap<String, ManagedInstance>>> {
         self.instances.lock().ok()
     }
 
@@ -115,12 +127,10 @@ impl InstanceManager {
     /// Patch the in-memory config + persist to the daemon TOML, then
     /// push the new config to the running process manager so the next
     /// start uses it.
-    pub fn patch_instance(
-        &self,
-        id: &str,
-        patch: serde_json::Value,
-    ) -> Result<(), String> {
-        let cfg = self.config_of(id).ok_or_else(|| format!("unknown instance: {id}"))?;
+    pub fn patch_instance(&self, id: &str, patch: serde_json::Value) -> Result<(), String> {
+        let cfg = self
+            .config_of(id)
+            .ok_or_else(|| format!("unknown instance: {id}"))?;
         // Merge into a json doc for core::patch_instance reuse.
         let mut doc = serde_json::json!({
             "name": cfg.name,
@@ -153,10 +163,7 @@ impl InstanceManager {
         };
 
         {
-            let mut guard = self
-                .instances
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(m) = guard.get_mut(id) {
                 m.config = updated.clone();
             }
@@ -173,6 +180,126 @@ impl InstanceManager {
     pub fn snapshot_of(&self, id: &str) -> Option<minewrap_core::InstanceSnapshot> {
         let guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
         guard.get(id).map(|m| m.state.snapshot())
+    }
+
+    /// Snapshot as JSON with the daemon-additive `last_error` field
+    /// (GUI `SnapshotDto` parity; additive, API stays "1.0").
+    pub fn snapshot_json(&self, id: &str) -> Option<serde_json::Value> {
+        let guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
+        let m = guard.get(id)?;
+        let mut v = serde_json::to_value(m.state.snapshot()).unwrap_or(serde_json::json!({}));
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert("last_error".into(), serde_json::json!(m.last_error));
+        }
+        Some(v)
+    }
+
+    pub fn last_error_of(&self, id: &str) -> Option<String> {
+        let guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
+        guard.get(id).and_then(|m| m.last_error.clone())
+    }
+
+    /// `(id, ProbeConfig)` pairs for the background SLP poller.
+    pub fn probe_targets(&self) -> Vec<(String, ProbeConfig)> {
+        let guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
+        guard
+            .iter()
+            .map(|(id, m)| (id.clone(), m.config.probe.clone()))
+            .collect()
+    }
+
+    /// Apply a fresh probe result (poller task T2).
+    pub fn apply_probe(&self, id: &str, info: ProbeInfo) {
+        let mut guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(m) = guard.get_mut(id) {
+            m.state.update_probe(info.clone());
+            m.probe = info;
+        }
+    }
+
+    /// Add an instance at runtime (validates, spawns its owner task,
+    /// persists to TOML). The caller is responsible for the duplicate
+    /// check (HTTP 409).
+    pub fn add_instance(&self, cfg: InstanceConfig) -> Result<(), String> {
+        cfg.validate()?;
+        let id = cfg.id.clone();
+        let (defaults, unresponsive_after_failures) = {
+            let daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                daemon.daemon.defaults.clone(),
+                daemon.daemon.unresponsive_after_failures,
+            )
+        };
+        let buf = Arc::new(Mutex::new(LogBuffer::new(defaults.log_buffer_lines)));
+        let manager = ProcessManager::new(
+            cfg.clone(),
+            defaults.clone(),
+            self.bus.clone(),
+            buf.clone(),
+            None,
+        );
+        let handle = manager.spawn();
+        let state = InstanceState::new(
+            cfg.id.clone(),
+            cfg.display_name().to_string(),
+            unresponsive_after_failures,
+        );
+
+        {
+            let mut daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
+            daemon.instances.push(cfg.clone());
+            daemon.validate()?;
+            if let Some(path) = &self.config_path {
+                daemon.save_to(path)?;
+            }
+        }
+        self.instances
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                id.clone(),
+                ManagedInstance {
+                    config: cfg,
+                    buffer: buf,
+                    state,
+                    handle: Some(handle),
+                    probe: ProbeInfo::default(),
+                    last_error: None,
+                },
+            );
+        self.notify_changed();
+        Ok(())
+    }
+
+    /// Finish removing an instance after the caller has stopped it:
+    /// drop the runtime, persist the TOML without it. Returns false
+    /// when the id was unknown.
+    pub fn finish_remove_instance(&self, id: &str) -> bool {
+        let removed = {
+            let mut guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
+            guard.remove(id).is_some()
+        };
+        if !removed {
+            return false;
+        }
+        {
+            let mut daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
+            daemon.instances.retain(|c| c.id != id);
+            if let Some(path) = &self.config_path {
+                let _ = daemon.save_to(path);
+            }
+        }
+        self.notify_changed();
+        true
+    }
+
+    /// Subscribe to structural-change notifications (add/remove).
+    pub fn subscribe_changes(&self) -> tokio::sync::broadcast::Receiver<()> {
+        self.changes.subscribe()
+    }
+
+    fn notify_changed(&self) {
+        let _ = self.changes.send(());
     }
 
     pub fn backfill(&self, id: &str, limit: usize, since_seq: u64) -> Vec<minewrap_core::LogLine> {
@@ -236,3 +363,67 @@ pub fn under_data_dir(data_dir: &Path, rel: &str) -> PathBuf {
 
 #[allow(dead_code)]
 fn _unused(_: &Event) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn instance(id: &str) -> InstanceConfig {
+        InstanceConfig {
+            id: id.into(),
+            name: String::new(),
+            work_dir: "/tmp".into(),
+            java_path: "java".into(),
+            jvm_args: vec![],
+            launch_args: vec![],
+            autostart: false,
+            probe: Default::default(),
+            restart: Default::default(),
+            rcon: None,
+            discord: Default::default(),
+        }
+    }
+
+    #[test]
+    fn add_and_remove_instance_persist_round_trip() {
+        let dir = std::env::temp_dir().join(format!("minewrapd-mgr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("minewrap.toml");
+        let mut cfg = DaemonConfig::default();
+        cfg.daemon.data_dir = dir.join("data").to_string_lossy().to_string();
+        {
+            let mut first = cfg.clone();
+            first.instances = vec![instance("keep")];
+            first.save_to(path.to_str().unwrap()).unwrap();
+        }
+
+        let loaded = DaemonConfig::load_from(path.to_str().unwrap()).unwrap();
+        let mgr = InstanceManager::load(
+            loaded,
+            Arc::new(EventBus::new()),
+            Some(path.to_string_lossy().to_string()),
+        );
+        assert_eq!(mgr.count(), 1);
+
+        mgr.add_instance(instance("new")).unwrap();
+        assert_eq!(mgr.count(), 2);
+        // Duplicate id rejected by the TOML validator.
+        assert!(mgr.add_instance(instance("new")).is_err());
+
+        assert!(mgr.finish_remove_instance("new"));
+        assert!(!mgr.finish_remove_instance("ghost"));
+        assert_eq!(mgr.count(), 1);
+
+        let reloaded = DaemonConfig::load_from(path.to_str().unwrap()).unwrap();
+        assert_eq!(reloaded.instances.len(), 1);
+        assert_eq!(reloaded.instances[0].id, "keep");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn snapshot_json_carries_last_error() {
+        let mgr = InstanceManager::load(DaemonConfig::default(), Arc::new(EventBus::new()), None);
+        assert!(mgr.snapshot_json("missing").is_none());
+    }
+}
