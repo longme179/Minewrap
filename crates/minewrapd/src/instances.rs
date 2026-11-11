@@ -309,7 +309,6 @@ impl InstanceManager {
     /// check (HTTP 409).
     pub fn add_instance(&self, cfg: InstanceConfig) -> Result<(), String> {
         cfg.validate()?;
-        let id = cfg.id.clone();
         let (defaults, unresponsive_after_failures) = {
             let daemon = self.daemon.lock().unwrap_or_else(|e| e.into_inner());
             (
