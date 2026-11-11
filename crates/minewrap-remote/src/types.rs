@@ -124,6 +124,9 @@ pub struct HealthResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogLineDto {
     pub seq: u64,
+    /// Wire format is epoch **milliseconds** (`chrono::serde::ts_milliseconds`,
+    /// matching `minewrap_core::LogLine`), not an RFC3339 string.
+    #[serde(with = "chrono::serde::ts_milliseconds")]
     pub ts: chrono::DateTime<chrono::Utc>,
     pub line: String,
 }
@@ -355,10 +358,11 @@ mod tests {
     #[test]
     fn log_line_dto_parses() {
         let v: LogLineDto = serde_json::from_value(serde_json::json!({
-            "seq": 7, "ts": "2026-11-11T00:00:00Z", "line": "Done"
+            "seq": 7, "ts": 1794401798153u64, "line": "Done"
         }))
         .unwrap();
         assert_eq!(v.seq, 7);
         assert_eq!(v.line, "Done");
+        assert_eq!(v.ts.timestamp_millis(), 1794401798153);
     }
 }

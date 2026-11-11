@@ -261,6 +261,25 @@ impl RemoteClient {
                 detail.unwrap_or_else(|| "duplicate instance id".into()),
             ));
         }
+        // The v1.10.0 daemon replies `201 {"id","name"}` (the created
+        // instance), which is not an `Action` body — map it explicitly so
+        // the UI does not surface a decode error on a successful create.
+        if resp.status().as_u16() == 201 {
+            let v: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| MinewrapError::offline(e.to_string()))?;
+            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or_default();
+            if id.is_empty() {
+                return Err(MinewrapError::invalid(
+                    "201 response without instance id".to_string(),
+                ));
+            }
+            return Ok(types::Action {
+                ok: true,
+                detail: Some(format!("created instance {id}")),
+            });
+        }
         self.json_typed(resp).await
     }
 

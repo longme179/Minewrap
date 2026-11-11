@@ -37,7 +37,7 @@ export interface SnapshotDto {
 
 export interface LogLine {
   seq: number;
-  ts: string; // ISO 8601 (chrono ts_milliseconds)
+  ts: number; // epoch milliseconds (chrono ts_milliseconds — Rust wire format)
   line: string;
 }
 
