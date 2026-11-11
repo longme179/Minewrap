@@ -27,7 +27,7 @@
 
   interface LogSnap {
     seq: number;
-    ts: string;
+    ts: number;
     line: string;
   }
   interface StoreSnap {
@@ -118,7 +118,7 @@
     }
   }
 
-  function fmtTs(ts: string): string {
+  function fmtTs(ts: number): string {
     try {
       const d = new Date(ts);
       return d.toISOString().slice(11, 19);

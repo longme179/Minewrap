@@ -47,7 +47,7 @@ const stateListeners = new Set<(s: StateChanged) => void>();
 
 function fakeLine(i: number): LogLine {
   const raw = MOCK_LINES[i % MOCK_LINES.length] ?? `line ${i}`;
-  return { seq: ++seq, ts: new Date().toISOString(), line: raw };
+  return { seq: ++seq, ts: Date.now(), line: raw };
 }
 
 export class MockIpcAdapter implements IpcAdapter {

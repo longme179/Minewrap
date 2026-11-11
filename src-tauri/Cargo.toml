@@ -13,6 +13,14 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "minewrap-tauri"
 path = "src/main.rs"
 
+[features]
+# Production asset embedding. Without this feature generate_context! serves
+# the app from devUrl (http://localhost:5173) even in release builds, because
+# build.sh compiles the GUI with bare cargo instead of the tauri CLI (which
+# would pass the feature for us). Symptom without it: WebKit "Could not
+# connect to localhost" error page whenever no dev server is listening.
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
