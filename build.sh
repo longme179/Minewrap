@@ -2,14 +2,21 @@
 # Minewrap — build from source (v1.10.0).
 #
 # Modes:
-#   ./build.sh              # everything: daemon + GUI AppImage
-#   ./build.sh --daemon-only# headless daemon only (no GUI deps needed)
+#   ./build.sh               # everything: daemon + GUI (embedded frontend)
+#   ./build.sh --daemon-only # headless daemon only (no GUI deps needed)
 #
 # The script installs missing system dependencies where it can (needs
-# root via sudo for the package manager step; skip with
-# MINEWRAP_NO_SUDO=1 if the deps are already present) and then builds
-# with the project's pinned toolchains: cargo (workspace, release) for
-# the Rust side and pnpm for the Svelte UI.
+# root via sudo for the package manager step; skip with MINEWRAP_NO_SUDO=1
+# if the deps are already present) and then builds with the project's
+# pinned toolchains: cargo (workspace, release) for the Rust side and pnpm
+# for the Svelte UI.
+#
+# Outputs:
+#   binaries/minewrapd            — standalone daemon
+#   target/release/minewrap-tauri — GUI (frontend embedded at compile time)
+#
+# AppImage bundling is intentionally NOT part of this script yet — it moves
+# to the P1 packaging step together with the native GUI switch.
 
 set -euo pipefail
 
@@ -17,8 +24,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DAEMON_ONLY=0
 [[ "${1:-}" == "--daemon-only" ]] && DAEMON_ONLY=1
 
-log() { printf '\033[1;34m[build]\033[0m %s\n' "$*"; }
-die() { printf '\033[1;31m[build]\033[0m %s\n' "$*" >&2; exit 1; }
+log() { printf '[build] %s\n' "$*"; }
+die() { printf '[build] %s\n' "$*" >&2; exit 1; }
 
 need() { command -v "$1" >/dev/null 2>&1 || die "missing tool: $1 ($2)"; }
 
@@ -63,7 +70,15 @@ fi
 log "installing UI deps (pnpm)…"
 (cd "$ROOT/ui" && pnpm install)
 
-log "building the Tauri AppImage (bundles binaries/minewrapd as a sidecar)…"
-(cd "$ROOT/ui" && pnpm tauri build)
+log "building the Svelte UI (fills ui/dist — embedded at compile time)…"
+(cd "$ROOT/ui" && pnpm build)
 
-log "done. AppImage: ui/src-tauri/target/release/bundle/appimage/"
+TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
+log "staging daemon sidecar (src-tauri/binaries/minewrapd-$TRIPLE)…"
+install -Dm755 target/release/minewrapd "$ROOT/src-tauri/binaries/minewrapd-$TRIPLE"
+
+log "building the GUI (cargo release — embeds ui/dist + sidecar)…"
+cargo build --release -p minewrap-tauri
+
+log "done. daemon: binaries/minewrapd — GUI: target/release/minewrap-tauri"
+log "(AppImage bundling arrives with the P1 native-GUI packaging step.)"
