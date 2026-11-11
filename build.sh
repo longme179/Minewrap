@@ -78,7 +78,7 @@ log "staging daemon sidecar (src-tauri/binaries/minewrapd-$TRIPLE)…"
 install -Dm755 target/release/minewrapd "$ROOT/src-tauri/binaries/minewrapd-$TRIPLE"
 
 log "building the GUI (cargo release — embeds ui/dist + sidecar)…"
-cargo build --release -p minewrap-tauri
+cargo build --release -p minewrap-tauri --features custom-protocol
 
 log "done. daemon: binaries/minewrapd — GUI: target/release/minewrap-tauri"
 log "(AppImage bundling arrives with the P1 native-GUI packaging step.)"
