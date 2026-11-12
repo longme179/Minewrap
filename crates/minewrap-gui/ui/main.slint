@@ -235,6 +235,11 @@ export component App inherits Window {
     in-out property <string> instance-name: "";
     in-out property <string> instance-state: "—";
     in-out property <int> instance-code: 6;
+    // Stats strip (v1.9.3 Dashboard parity): players online/max + server
+    // version, from the polled InstanceSummary (the DTO carried them all
+    // along; the P1 header just never showed them).
+    in-out property <string> instance-players: "";
+    in-out property <string> instance-version: "";
     in-out property <bool> stick: true;
     in-out property <int> sel-lo: -1;
     in-out property <int> sel-hi: -1;
@@ -243,6 +248,8 @@ export component App inherits Window {
     in-out property <bool> ws-live: false;
     in-out property <string> status: "";
     in-out property <string> cmd-text: "";
+    // Console substring filter (v1.9.3 "Filter logs" parity).
+    in-out property <string> console-filter: "";
 
     // --- navigation ---
     in-out property <int> settings-tab: 0; // 0 console, 1 settings, 2 properties, 3 mods, 4 notifications
@@ -326,6 +333,11 @@ export component App inherits Window {
     callback step(int);
     callback control(string);
     callback send-command(string);
+    // Console filter changed → Rust rebuilds the visible model (v1.9.3 parity).
+    callback console-filter-changed(string);
+    // Command-history navigation (v1.9.3 parity): dir = -1 (↑) | +1 (↓);
+    // Rust returns nothing but sets `cmd-text` itself.
+    callback cmd-history(int);
     callback copy-selection(int, int);
     callback add-instance();
     callback add-node();
@@ -362,6 +374,12 @@ export component App inherits Window {
         return code == 3 || code == 4 || code == 6;
     }
     pure function can-stop(code: int) -> bool {
+        return code == 0 || code == 1 || code == 2 || code == 5;
+    }
+    // Restart is meaningful for any live-process state (parity with the
+    // v1.9.3 Dashboard's Restart button; the daemon route existed all
+    // along — the P1 GUI just never exposed it).
+    pure function can-restart(code: int) -> bool {
         return code == 0 || code == 1 || code == 2 || code == 5;
     }
     pure function row-at(y: length) -> int {
@@ -543,6 +561,19 @@ export component App inherits Window {
                                 color: root.state-color(root.instance-code);
                                 font-size: Theme.text-xs;
                             }
+                            // stats strip: "12/20 players · 1.21.1" (blank
+                            // while nothing is selected / unknown fields)
+                            Text {
+                                text: root.instance-name == "" ? "" : (
+                                    root.instance-players == "" && root.instance-version == ""
+                                    ? ""
+                                    : (root.instance-players == "" ? "— players" : root.instance-players)
+                                      + " · "
+                                      + (root.instance-version == "" ? "—" : root.instance-version)
+                                );
+                                color: Theme.muted-fg;
+                                font-size: Theme.text-xs;
+                            }
                         }
                         Rectangle { horizontal-stretch: 1; }
                         TokBtn {
@@ -555,6 +586,11 @@ export component App inherits Window {
                             label: "Stop";
                             enabled: root.instance-name != "" && root.can-stop(root.instance-code);
                             clicked => { root.control("stop"); }
+                        }
+                        TokBtn {
+                            label: "Restart";
+                            enabled: root.instance-name != "" && root.can-restart(root.instance-code);
+                            clicked => { root.control("restart"); }
                         }
                         TokBtn {
                             label: "Remove";
@@ -605,13 +641,23 @@ export component App inherits Window {
                                     color: Theme.fg;
                                     font-size: Theme.text-lg;
                                     vertical-alignment: center;
-                                    horizontal-stretch: 1;
+                                }
+                                // Filter logs (v1.9.3 Console toolbar parity):
+                                // substring match, case-insensitive, live.
+                                LineEdit {
+                                    width: Theme.w-210;
+                                    height: Theme.h-28;
+                                    text <=> root.console-filter;
+                                    placeholder-text: "Filter logs…";
+                                    font-size: Theme.text-sm;
+                                    edited => { root.console-filter-changed(root.console-filter); }
                                 }
                                 Text {
                                     text: root.ws-live ? "live" : "reconnecting…";
                                     color: root.ws-live ? Theme.accent : Theme.warn;
                                     font-size: Theme.text-sm;
                                     vertical-alignment: center;
+                                    horizontal-stretch: 1;
                                 }
                             }
                             // console body
@@ -708,9 +754,24 @@ export component App inherits Window {
                                     spacing: Theme.space-8;
                                     cmd-input := LineEdit {
                                         text <=> root.cmd-text;
-                                        placeholder-text: "server command (stdin)";
+                                        placeholder-text: "server command (stdin) — ↑/↓ history";
                                         font-family: "Noto Sans";
                                         font-size: Theme.text-base;
+                                        // Command history (v1.9.3 parity): ↑ walks
+                                        // backwards through sent commands, ↓ forwards.
+                                        // `reject` passes every other key to the
+                                        // LineEdit's own cursor handling.
+                                        key-pressed(event) => {
+                                            if (event.text == Key.UpArrow) {
+                                                root.cmd-history(-1);
+                                                return accept;
+                                            }
+                                            if (event.text == Key.DownArrow) {
+                                                root.cmd-history(1);
+                                                return accept;
+                                            }
+                                            reject
+                                        }
                                         accepted => {
                                             root.send-command(root.cmd-text);
                                             root.cmd-text = "";

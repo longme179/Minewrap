@@ -86,6 +86,13 @@ struct State {
     /// search filter.
     mods: Vec<ModRow>,
     mods_filter: String,
+    /// Console substring filter (v1.9.3 parity): when non-empty, the
+    /// visible model holds only matching ring lines.
+    console_filter: String,
+    /// Command input history (v1.9.3 parity): ↑ walks backwards, ↓
+    /// forwards, -1 = "not browsing".
+    cmd_history: Vec<String>,
+    cmd_history_index: i32,
 }
 
 impl State {
@@ -103,6 +110,10 @@ impl State {
         self.ring.reset();
         self.pending.clear();
         self.line_model.set_vec(Vec::new());
+        // Per-instance filter lifetime matches v1.9.3 (the web store was
+        // cleared on selection change); history persists across switches.
+        self.console_filter.clear();
+        ui.set_console_filter("".into());
         self.sel_tx
             .send(Some((node_id.to_string(), id.to_string())))
             .ok();
@@ -211,6 +222,8 @@ impl State {
             self.pending.clear();
             self.ring.reset();
             self.line_model.set_vec(Vec::new());
+            self.console_filter.clear();
+            ui.set_console_filter("".into());
             self.selected = None;
             self.sel_tx.send(None).ok();
             ui.set_selected_id("".into());
@@ -252,12 +265,15 @@ impl State {
             ui.set_instance_name("".into());
             ui.set_instance_state("—".into());
             ui.set_instance_code(instances::UNKNOWN);
+            ui.set_instance_players("".into());
+            ui.set_instance_version("".into());
         } else {
             self.refresh_header(ui);
         }
     }
 
-    /// Header fields come from the polled summary (name + combined_state).
+    /// Stats strip + header from the polled summary (name, state,
+    /// players, version — v1.9.3 Dashboard parity).
     fn refresh_header(&self, ui: &App) {
         let Some(node) = self.selected_node.as_deref() else {
             return;
@@ -283,9 +299,24 @@ impl State {
         );
         ui.set_instance_state(instances::state_label(code).into());
         ui.set_instance_code(code);
+        let players = match (summary.players_online, summary.players_max) {
+            (Some(on), Some(max)) => format!("{on}/{max} players"),
+            (Some(on), None) => format!("{on} players"),
+            _ => String::new(),
+        };
+        ui.set_instance_players(players.into());
+        ui.set_instance_version(
+            summary
+                .version
+                .clone()
+                .unwrap_or_default()
+                .into(),
+        );
     }
 
     /// Accept at most `budget` lines into the model (batch, not per line).
+    /// With a console filter active, only matching lines reach the model
+    /// (the ring still keeps everything, up to its 1000-line cap).
     fn drain_ring(&mut self, budget: usize) {
         let mut left = budget;
         while left > 0 {
@@ -302,22 +333,50 @@ impl State {
             );
             match self.ring.push(line) {
                 PushOutcome::Accepted { evicted } => {
-                    if evicted {
+                    if evicted && self.console_filter.is_empty() {
                         self.line_model.remove(0);
                     }
                     let line = self.ring.iter().last().expect("line just pushed");
-                    self.line_model.push(LogLine {
-                        seq: line.seq as i32,
-                        ts: line.ts.as_str().into(),
-                        tag: line.tag.as_str().into(),
-                        level: line.level,
-                        msg: line.msg.as_str().into(),
-                    });
+                    let matches = self.console_filter.is_empty()
+                        || line
+                            .msg
+                            .to_lowercase()
+                            .contains(&self.console_filter.to_lowercase());
+                    if matches {
+                        self.line_model.push(LogLine {
+                            seq: line.seq as i32,
+                            ts: line.ts.as_str().into(),
+                            tag: line.tag.as_str().into(),
+                            level: line.level,
+                            msg: line.msg.as_str().into(),
+                        });
+                    }
                     left -= 1;
                 }
                 PushOutcome::Duplicate => {}
             }
         }
+    }
+
+    /// Rebuild the visible model from the ring under the current filter
+    /// (call after the filter text changes or after a reset/reselect).
+    fn rebuild_lines(&self) {
+        let rows: Vec<LogLine> = self
+            .ring
+            .iter()
+            .filter(|l| {
+                self.console_filter.is_empty()
+                    || l.msg.to_lowercase().contains(&self.console_filter.to_lowercase())
+            })
+            .map(|l| LogLine {
+                seq: l.seq as i32,
+                ts: l.ts.as_str().into(),
+                tag: l.tag.as_str().into(),
+                level: l.level,
+                msg: l.msg.as_str().into(),
+            })
+            .collect();
+        self.line_model.set_vec(rows);
     }
 
     fn copy(&mut self, lo: i32, hi: i32) {
@@ -944,6 +1003,9 @@ fn main() -> Result<(), slint::PlatformError> {
         java_runtimes: Vec::new(),
         mods: Vec::new(),
         mods_filter: String::new(),
+        console_filter: String::new(),
+        cmd_history: Vec::new(),
+        cmd_history_index: -1,
     }));
 
     runtime::spawn(runtime, svc, sel_rx, cmd_rx, msg_tx);
@@ -1063,12 +1125,72 @@ fn main() -> Result<(), slint::PlatformError> {
             if id.is_empty() {
                 return;
             }
+            // Command history (v1.9.3 parity): every accepted command is
+            // remembered; ↑ walks back from the newest.
+            {
+                let mut st = state.borrow_mut();
+                if st
+                    .cmd_history
+                    .last()
+                    .map(|last| last != &text)
+                    .unwrap_or(true)
+                {
+                    st.cmd_history.push(text.clone());
+                    if st.cmd_history.len() > 100 {
+                        st.cmd_history.remove(0);
+                    }
+                }
+                st.cmd_history_index = -1;
+            }
             state
                 .borrow_mut()
                 .cmd_tx
                 .send(Cmd::SendCommand(node, id, text))
                 .ok();
             ui.set_cmd_text("".into());
+        });
+    }
+    // Console filter (v1.9.3 parity): rebuild the visible model under the
+    // new substring each keystroke.
+    {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_console_filter_changed(move |text| {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let mut st = state.borrow_mut();
+            st.console_filter = text.to_string();
+            st.rebuild_lines();
+            ui.set_stick(true);
+            ui.set_sel_lo(-1);
+            ui.set_sel_hi(-1);
+        });
+    }
+    // Command history navigation (v1.9.3 parity): dir -1 = ↑ (older),
+    // +1 = ↓ (newer); at the end of the walk, restore a blank input.
+    {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_cmd_history(move |dir| {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let mut st = state.borrow_mut();
+            if st.cmd_history.is_empty() {
+                return;
+            }
+            let len = st.cmd_history.len() as i32;
+            let next = if st.cmd_history_index == -1 {
+                if dir < 0 { len - 1 } else { -1 }
+            } else {
+                (st.cmd_history_index + dir).clamp(-1, len - 1)
+            };
+            if next == -1 {
+                st.cmd_history_index = -1;
+                ui.set_cmd_text("".into());
+                return;
+            }
+            st.cmd_history_index = next;
+            let text = st.cmd_history[next as usize].clone();
+            drop(st);
+            ui.set_cmd_text(text.into());
         });
     }
     {
