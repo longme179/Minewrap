@@ -10,7 +10,10 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use minewrap_remote::RemoteClient;
-use minewrap_remote::types::{HealthResponse, InstanceSummaryDto, LogLineDto};
+use minewrap_remote::types::{
+    HealthResponse, InstanceSummaryDto, JavaRuntimeDto, LogLineDto,
+};
+use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -20,6 +23,18 @@ pub enum Cmd {
     Control(String),
     /// Server stdin command (`POST …/command`).
     SendCommand(String),
+    /// `POST /api/v1/instances` — create payload.
+    AddInstance(Value),
+    /// `DELETE /api/v1/instances/{id}`.
+    RemoveInstance(String),
+    /// `GET …/config`.
+    GetConfig(String),
+    /// `PUT …/config` patch.
+    UpdateConfig(String, Value),
+    /// `GET /api/v1/java`.
+    DetectJava,
+    /// `POST /api/v1/scan-workdir`.
+    ScanWorkdir(String),
 }
 
 /// Messages sent from the runtime to the UI thread.
@@ -33,6 +48,19 @@ pub enum UiMsg {
     },
     Notice(String),
     Error(String),
+    /// Result of `add_instance`; the daemon answers `201 {"id","name"}` and
+    /// `minewrap-remote` maps it explicitly (never decodes it as `Action`).
+    InstanceAdded(Result<(), String>),
+    /// Result of `remove_instance`, carries the removed id on success.
+    InstanceRemoved(Result<String, String>),
+    /// Result of `get_config` — raw `instance_view` JSON.
+    ConfigFetched(Result<Value, String>),
+    /// Result of `update_config`.
+    ConfigSaved(Result<(), String>),
+    /// Result of `detect_java`.
+    JavaRuntimes(Result<Vec<JavaRuntimeDto>, String>),
+    /// Result of `scan_workdir`.
+    WorkDirScan(Result<Value, String>),
 }
 
 /// Spawn the runtime thread. Returns immediately; the thread lives until
@@ -219,8 +247,8 @@ async fn command_loop(
             continue;
         };
         match cmd {
-            Cmd::Control(action) => {
-                match client.action(&instance, &action, None).await {
+            Cmd::Control(ref action) => {
+                match client.action(&instance, action, None).await {
                     Ok(v) => {
                         let ok = v
                             .get("ok")
@@ -245,7 +273,7 @@ async fn command_loop(
                     }
                 }
             }
-            Cmd::SendCommand(text) => match client.send_command(&instance, &text).await {
+            Cmd::SendCommand(ref text) => match client.send_command(&instance, text).await {
                 Ok(v) => {
                     let accepted = v
                         .get("accepted")
@@ -261,10 +289,70 @@ async fn command_loop(
                     let _ = tx.send(UiMsg::Error(format!("command: {e}")));
                 }
             },
+            Cmd::AddInstance(ref config) => match client.add_instance(config.clone()).await {
+                Ok(_) => {
+                    let _ = tx.send(UiMsg::InstanceAdded(Ok(())));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiMsg::InstanceAdded(Err(format!("add instance: {e}"))));
+                }
+            },
+            Cmd::RemoveInstance(ref id) => match client.remove_instance(id).await {
+                Ok(_) => {
+                    let _ = tx.send(UiMsg::InstanceRemoved(Ok(id.clone())));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiMsg::InstanceRemoved(Err(format!(
+                        "remove instance: {e}"
+                    ))));
+                }
+            },
+            Cmd::GetConfig(ref id) => match client.get_config(id).await {
+                Ok(v) => {
+                    let _ = tx.send(UiMsg::ConfigFetched(Ok(v)));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiMsg::ConfigFetched(Err(format!("get config: {e}"))));
+                }
+            },
+            Cmd::UpdateConfig(ref id, ref patch) => {
+                match client.update_config(id, patch.clone()).await {
+                    Ok(_) => {
+                        let _ = tx.send(UiMsg::ConfigSaved(Ok(())));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(UiMsg::ConfigSaved(Err(format!(
+                            "update config: {e}"
+                        ))));
+                    }
+                }
+            }
+            Cmd::DetectJava => match client.detect_java().await {
+                Ok(list) => {
+                    let _ = tx.send(UiMsg::JavaRuntimes(Ok(list)));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiMsg::JavaRuntimes(Err(format!("detect java: {e}"))));
+                }
+            },
+            Cmd::ScanWorkdir(ref dir) => match client.scan_workdir(dir).await {
+                Ok(v) => {
+                    let _ = tx.send(UiMsg::WorkDirScan(Ok(v)));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiMsg::WorkDirScan(Err(format!("scan workdir: {e}"))));
+                }
+            },
         }
         // Reflect the new state immediately instead of waiting for the tick.
-        if let Ok(list) = client.list_instances_typed().await {
-            let _ = tx.send(UiMsg::Instances(list));
+        let refresh = matches!(
+            &cmd,
+            Cmd::AddInstance(_) | Cmd::RemoveInstance(_) | Cmd::Control(_)
+        );
+        if refresh {
+            if let Ok(list) = client.list_instances_typed().await {
+                let _ = tx.send(UiMsg::Instances(list));
+            }
         }
     }
 }
