@@ -1892,6 +1892,16 @@ export component NodesWindow inherits Window {
                     height: Theme.h-44;
                     background: (ta.has-hover ? Theme.card-hover : transparent);
                     border-radius: Theme.space-6;
+                    // Row hover TouchArea must be declared BEFORE the
+                    // HorizontalLayout: later elements stack on top, so the
+                    // Retry/Remove TokBtns (with their own TouchAreas) stay
+                    // clickable. Declaring it after (as P1-C3's mods-row bug)
+                    // swallows every click in the row.
+                    ta := TouchArea {
+                        width: parent.width;
+                        height: parent.height;
+                        clicked => {}
+                    }
                     HorizontalLayout {
                         padding-left: Theme.space-8;
                         padding-right: Theme.space-8;
@@ -1936,11 +1946,6 @@ export component NodesWindow inherits Window {
                             enabled: !node.is_local;
                             clicked => { root.remove-node(node.id); }
                         }
-                    }
-                    ta := TouchArea {
-                        width: parent.width;
-                        height: parent.height;
-                        clicked => {}
                     }
                 }
             }
