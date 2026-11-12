@@ -261,12 +261,25 @@ impl InstanceManager {
 
     pub fn summary_of(&self, id: &str) -> Option<minewrap_core::InstanceSummary> {
         let guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
-        guard.get(id).map(|m| m.state.summary())
+        guard.get(id).map(|m| {
+            // `config` is the source of truth for the display name:
+            // `patch_instance` already wrote the new name there; the state
+            // cache (`m.state.name`) is only rebuilt at spawn, so without
+            // this override a renamed instance keeps showing its old name
+            // until the daemon restarts (BUG-D1).
+            let mut s = m.state.summary();
+            s.name = m.config.display_name().to_string();
+            s
+        })
     }
 
     pub fn snapshot_of(&self, id: &str) -> Option<minewrap_core::InstanceSnapshot> {
         let guard = self.instances.lock().unwrap_or_else(|e| e.into_inner());
-        guard.get(id).map(|m| m.state.snapshot())
+        guard.get(id).map(|m| {
+            let mut s = m.state.snapshot();
+            s.name = m.config.display_name().to_string();
+            s
+        })
     }
 
     /// Snapshot as JSON with the daemon-additive `last_error` field
@@ -276,6 +289,9 @@ impl InstanceManager {
         let m = guard.get(id)?;
         let mut v = serde_json::to_value(m.state.snapshot()).unwrap_or(serde_json::json!({}));
         if let Some(obj) = v.as_object_mut() {
+            // Same source-of-truth override as snapshot_of (name is not
+            // rebuilt in the state cache until the next spawn).
+            obj.insert("name".into(), serde_json::json!(m.config.display_name()));
             obj.insert("last_error".into(), serde_json::json!(m.last_error));
         }
         Some(v)

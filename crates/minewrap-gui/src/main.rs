@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use minewrap_remote::RemoteClient;
 use minewrap_remote::types::{InstanceSummaryDto, LogLineDto};
-use minewrap_gui::config_view::{RAM_MIN_MB, SettingsForm, WizardForm};
+use minewrap_gui::config_view::{DiscordForm, RAM_MIN_MB, SettingsForm, WizardForm};
 use slint::{ModelRc, SharedString, Timer, TimerMode, VecModel};
 use tokio::sync::{mpsc, watch};
 
@@ -47,14 +47,32 @@ struct State {
     /// form as loaded, compared against the live form on every edit.
     settings_saved: String,
     settings_dirty: bool,
-    /// Instance id the user tried to switch to while the Settings panel is
-    /// dirty (awaiting confirm-discard).
+    /// `properties-text` as last loaded; dirty when the live editor differs.
+    properties_saved: String,
+    properties_dirty: bool,
+    /// Discord form as last loaded; dirty when the live form differs.
+    notif_saved: String,
+    notif_dirty: bool,
+    /// Which panel a `GetConfig` response is routed to ("settings" |
+    /// "notifications").
+    config_target: Option<String>,
+    /// Instance id the user tried to switch to while a panel is dirty
+    /// (awaiting confirm-discard).
     pending_switch: Option<String>,
+    /// Tab the user tried to open while the current panel is dirty
+    /// (awaiting confirm-discard).
+    pending_tab: Option<i32>,
+    /// Name of the mod currently being toggled (per-row busy state).
+    mods_toggled_name: String,
     /// Which widget triggered the last `scan-workdir` so its response can
     /// be routed back ("wizard" | "settings").
     scan_target: Option<String>,
     /// Cached `GET /api/v1/java` results, shared by wizard and settings.
     java_runtimes: Vec<minewrap_remote::types::JavaRuntimeDto>,
+    /// Mods list for the selected instance (raw DTOs), plus the live
+    /// search filter.
+    mods: Vec<ModRow>,
+    mods_filter: String,
 }
 
 impl State {
@@ -73,14 +91,33 @@ impl State {
         ui.set_sel_hi(-1);
         ui.set_stick(true);
         self.refresh_header(ui);
-        // The Settings panel shows the selected instance: (re)load its config.
-        if ui.get_settings_tab() == 1 {
-            load_settings(ui, self, id);
-        } else {
-            self.settings_dirty = false;
-            self.settings_saved.clear();
-            ui.set_settings_dirty(false);
+        // The panel matching the current tab shows the selected instance:
+        // (re)load its data; other panels drop their dirty state.
+        match ui.get_settings_tab() {
+            1 => load_settings(ui, self, id),
+            2 => load_properties(ui, self, id),
+            3 => load_mods(ui, self, id),
+            4 => load_notifications(ui, self, id),
+            _ => {
+                self.settings_dirty = false;
+                self.properties_dirty = false;
+                self.notif_dirty = false;
+                self.settings_saved.clear();
+                self.properties_saved.clear();
+                self.notif_saved.clear();
+                ui.set_settings_dirty(false);
+                ui.set_properties_dirty(false);
+                ui.set_notif_dirty(false);
+                ui.set_settings_status("".into());
+                ui.set_properties_status("".into());
+                ui.set_notif_status("".into());
+            }
         }
+    }
+
+    /// Is any of the editable panels dirty?
+    fn panel_dirty(&self) -> bool {
+        self.settings_dirty || self.properties_dirty || self.notif_dirty
     }
 
     /// Rebuild the sidebar model, keeping (or choosing) a valid selection.
@@ -119,8 +156,14 @@ impl State {
             ui.set_sel_lo(-1);
             ui.set_sel_hi(-1);
             self.settings_dirty = false;
+            self.properties_dirty = false;
+            self.notif_dirty = false;
             self.settings_saved.clear();
+            self.properties_saved.clear();
+            self.notif_saved.clear();
             ui.set_settings_dirty(false);
+            ui.set_properties_dirty(false);
+            ui.set_notif_dirty(false);
             if let Some(first) = self.instances.first().map(|i| i.id.clone()) {
                 self.select(ui, &first);
             } else {
@@ -217,6 +260,77 @@ impl State {
     }
 }
 
+/// Title/text/action for the confirm dialog of the dirty panel (priority:
+/// Settings > Properties > Notifications).
+fn dirty_panel(state: &State) -> (&'static str, &'static str, &'static str) {
+    if state.settings_dirty {
+        (
+            "Discard unsaved changes?",
+            "The Settings panel has unsaved changes. Switch instance anyway?",
+            "discard-settings",
+        )
+    } else if state.properties_dirty {
+        (
+            "Discard unsaved changes?",
+            "server.properties has unsaved changes. Switch instance anyway?",
+            "discard-properties",
+        )
+    } else {
+        (
+            "Discard unsaved changes?",
+            "The Notifications panel has unsaved changes. Switch instance anyway?",
+            "discard-notifications",
+        )
+    }
+}
+
+/// Apply a pending instance switch or tab change after a discard was
+/// confirmed.
+fn finish_pending(state: &mut State, ui: &App) {
+    ui.set_confirm_open(false);
+    if let Some(id) = state.pending_switch.take() {
+        state.select(ui, &id);
+        return;
+    }
+    if let Some(target) = state.pending_tab.take() {
+        ui.set_settings_tab(target);
+        match target {
+            1 => {
+                if let Some(id) = state.selected.clone() {
+                    load_settings(ui, state, &id);
+                }
+            }
+            2 => {
+                if let Some(id) = state.selected.clone() {
+                    load_properties(ui, state, &id);
+                }
+            }
+            3 => {
+                if let Some(id) = state.selected.clone() {
+                    load_mods(ui, state, &id);
+                }
+            }
+            4 => {
+                if let Some(id) = state.selected.clone() {
+                    load_notifications(ui, state, &id);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Recompute the Properties dirty flag from the live editor vs the
+/// loaded snapshot.
+fn refresh_properties_dirty(ui: &App, state: &mut State) {
+    let dirty = !state.properties_saved.is_empty()
+        && ui.get_properties_text() != state.properties_saved;
+    if dirty != state.properties_dirty {
+        state.properties_dirty = dirty;
+        ui.set_properties_dirty(dirty);
+    }
+}
+
 /// Combo box items for the Java picker: "java" (system default), every
 /// detected runtime binary, then "Custom path…".
 fn java_items(state: &State) -> Rc<VecModel<SharedString>> {
@@ -252,6 +366,133 @@ fn load_settings(ui: &App, state: &mut State, id: &str) {
     ui.set_settings_status("".into());
     ui.set_settings_loading(true);
     state.cmd_tx.send(Cmd::GetConfig(id.to_string())).ok();
+}
+
+/// Load `GET …/properties` for `id` into the Properties panel.
+fn load_properties(ui: &App, state: &mut State, id: &str) {
+    state.properties_saved.clear();
+    ui.set_properties_dirty(false);
+    ui.set_properties_error("".into());
+    ui.set_properties_status("".into());
+    ui.set_properties_loading(true);
+    state.cmd_tx.send(Cmd::GetProperties(id.to_string())).ok();
+}
+
+/// Load `GET …/mods` for `id` into the Mods panel.
+fn load_mods(ui: &App, state: &mut State, id: &str) {
+    ui.set_mods_status("".into());
+    ui.set_mods_loading(true);
+    state.cmd_tx.send(Cmd::ListMods(id.to_string())).ok();
+}
+
+/// Load `GET …/config` (discord group) for `id` into the Notifications panel.
+fn load_notifications(ui: &App, state: &mut State, id: &str) {
+    state.config_target = Some("notifications".into());
+    ui.set_notif_load_error("".into());
+    ui.set_notif_error("".into());
+    ui.set_notif_status("".into());
+    state.cmd_tx.send(Cmd::GetConfig(id.to_string())).ok();
+}
+
+/// Read the live Notifications form from Slint properties.
+fn read_notif_form(ui: &App) -> DiscordForm {
+    let parse_f64 = |s: &str, def: f64| s.parse().unwrap_or(def);
+    let parse_usize = |s: &str, def: usize| s.parse().unwrap_or(def);
+    let redact: Vec<String> = ui
+        .get_notif_redact()
+        .split('\n')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let webhook = ui.get_notif_webhook().trim().to_string();
+    DiscordForm {
+        enabled: ui.get_notif_enabled(),
+        mode: ui.get_notif_mode().to_string(),
+        interval_seconds: parse_f64(&ui.get_notif_interval(), 600.0),
+        first_push_delay_seconds: parse_f64(&ui.get_notif_first_push(), 10.0),
+        log_lines: parse_usize(&ui.get_notif_log_lines(), 15),
+        max_log_chars: parse_usize(&ui.get_notif_max_log_chars(), 1500),
+        state_change_posts: ui.get_notif_state_change_posts(),
+        state_change_debounce_seconds: parse_f64(&ui.get_notif_state_change_debounce(), 30.0),
+        redact_regexes: redact,
+        webhook_url: if webhook.is_empty() {
+            None
+        } else {
+            Some(webhook)
+        },
+    }
+}
+
+/// Recompute the Notifications dirty flag from the live form vs the
+/// loaded snapshot.
+fn refresh_notif_dirty(ui: &App, state: &mut State) {
+    let dirty = !state.notif_saved.is_empty()
+        && read_notif_form(ui).snapshot() != state.notif_saved;
+    if dirty != state.notif_dirty {
+        state.notif_dirty = dirty;
+        ui.set_notif_dirty(dirty);
+    }
+}
+
+/// Apply `GET …/config` to the Notifications panel.
+fn apply_notifications(ui: &App, state: &mut State, value: &serde_json::Value) {
+    let form = DiscordForm::from_view(value);
+    state.notif_saved = form.snapshot();
+    let discord = value.get("discord").and_then(|v| v.as_object());
+    ui.set_notif_enabled(form.enabled);
+    ui.set_notif_mode(form.mode.into());
+    ui.set_notif_interval(form.interval_seconds.to_string().into());
+    ui.set_notif_first_push(form.first_push_delay_seconds.to_string().into());
+    ui.set_notif_log_lines(form.log_lines.to_string().into());
+    ui.set_notif_max_log_chars(form.max_log_chars.to_string().into());
+    ui.set_notif_state_change_posts(form.state_change_posts);
+    ui.set_notif_state_change_debounce(
+        form.state_change_debounce_seconds.to_string().into(),
+    );
+    ui.set_notif_redact(form.redact_regexes.join("\n").into());
+    ui.set_notif_webhook_set(
+        discord
+            .and_then(|d| d.get("webhook_set"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    );
+    ui.set_notif_webhook("".into());
+    ui.set_notif_result("".into());
+    ui.set_notif_result_ok(false);
+    state.notif_dirty = false;
+    ui.set_notif_dirty(false);
+    ui.set_notif_load_error("".into());
+    ui.set_notif_error("".into());
+    ui.set_notif_status("".into());
+    ui.set_notif_loaded(true);
+}
+
+/// Recompute the filtered mods model from the raw list + live filter.
+fn recompute_mods(state: &mut State, ui: &App) {
+    let filter = state.mods_filter.to_lowercase();
+    let rows: Vec<ModRow> = state
+        .mods
+        .iter()
+        .filter(|m| filter.is_empty() || m.name.to_lowercase().contains(&filter))
+        .cloned()
+        .collect();
+    let enabled = rows.iter().filter(|m| m.enabled).count();
+    ui.set_mods_count(format!("{} mods · {} enabled", rows.len(), enabled).into());
+    ui.set_mods_empty(rows.is_empty());
+    let model: ModelRc<ModRow> = Rc::new(VecModel::from(rows)).into();
+    ui.set_mods_filtered(model);
+}
+
+/// Human-readable size (mirrors `minewrap_core::mods::format_size`).
+fn format_size(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    format!("{:.1} {}", size, UNITS[unit])
 }
 
 /// Read the live Settings form from Slint properties.
@@ -494,9 +735,18 @@ fn main() -> Result<(), slint::PlatformError> {
         wizard: None,
         settings_saved: String::new(),
         settings_dirty: false,
+        properties_saved: String::new(),
+        properties_dirty: false,
+        notif_saved: String::new(),
+        notif_dirty: false,
+        config_target: None,
         pending_switch: None,
+        pending_tab: None,
+        mods_toggled_name: String::new(),
         scan_target: None,
         java_runtimes: Vec::new(),
+        mods: Vec::new(),
+        mods_filter: String::new(),
     }));
 
     runtime::spawn(runtime, client, sel_rx, cmd_rx, msg_tx);
@@ -512,14 +762,12 @@ fn main() -> Result<(), slint::PlatformError> {
             let mut st = state.borrow_mut();
             let idx = idx.max(0) as usize;
             let target = st.instances.get(idx).map(|i| i.id.clone());
-            if st.settings_dirty {
+            if st.panel_dirty() {
                 st.pending_switch = target.clone();
-                ui.set_confirm_title("Discard unsaved changes?".into());
-                ui.set_confirm_text(
-                    "The Settings panel has unsaved changes. Switch instance anyway?"
-                        .into(),
-                );
-                ui.set_confirm_action("discard-settings".into());
+                let (title, text, action) = dirty_panel(&st);
+                ui.set_confirm_title(title.into());
+                ui.set_confirm_text(text.into());
+                ui.set_confirm_action(action.into());
                 ui.set_confirm_open(true);
                 return;
             }
@@ -547,14 +795,12 @@ fn main() -> Result<(), slint::PlatformError> {
                 .unwrap_or(0) as i64;
             let next = (current + delta as i64).rem_euclid(n as i64) as usize;
             let target = st.instances[next].id.clone();
-            if st.settings_dirty {
+            if st.panel_dirty() {
                 st.pending_switch = Some(target.clone());
-                ui.set_confirm_title("Discard unsaved changes?".into());
-                ui.set_confirm_text(
-                    "The Settings panel has unsaved changes. Switch instance anyway?"
-                        .into(),
-                );
-                ui.set_confirm_action("discard-settings".into());
+                let (title, text, action) = dirty_panel(&st);
+                ui.set_confirm_title(title.into());
+                ui.set_confirm_text(text.into());
+                ui.set_confirm_action(action.into());
                 ui.set_confirm_open(true);
                 return;
             }
@@ -680,26 +926,215 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let state = state.clone();
         let ui_weak = ui_weak.clone();
-        ui.on_settings_tab_activated(move || {
+        ui.on_properties_touched(move || {
             let state = state.clone();
             let ui_weak = ui_weak.clone();
             let Some(ui) = ui_weak.upgrade() else { return };
-            if ui.get_settings_tab() != 1 {
+            let mut st = state.borrow_mut();
+            refresh_properties_dirty(&ui, &mut st);
+        });
+    }
+    {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_properties_save(move || {
+            let state = state.clone();
+            let ui_weak = ui_weak.clone();
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let st = state.borrow();
+            let id = st.selected.as_deref().unwrap_or("").to_string();
+            drop(st);
+            if id.is_empty() {
                 return;
             }
+            let st = state.borrow_mut();
+            let text = ui.get_properties_text().to_string();
+            st.cmd_tx.send(Cmd::WriteProperties(id, text)).ok();
+            ui.set_properties_loading(true);
+        });
+    }
+    {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_properties_revert(move || {
+            let state = state.clone();
+            let ui_weak = ui_weak.clone();
+            let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = state.borrow_mut();
-            if st.settings_dirty {
-                ui.set_confirm_title("Discard unsaved changes?".into());
-                ui.set_confirm_text(
-                    "The Settings panel has unsaved changes. Continue anyway?"
-                        .into(),
-                );
-                ui.set_confirm_action("discard-settings".into());
+            if let Some(id) = st.selected.clone() {
+                load_properties(&ui, &mut st, &id);
+            }
+        });
+    }
+    {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_mods_touched(move || {
+            let state = state.clone();
+            let ui_weak = ui_weak.clone();
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let mut st = state.borrow_mut();
+            st.mods_filter = ui.get_mods_filter().to_string();
+            recompute_mods(&mut st, &ui);
+        });
+    }
+    {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_mods_toggle(move |name, _enabled| {
+            let state = state.clone();
+            let ui_weak = ui_weak.clone();
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let name = name.to_string();
+            let mut st = state.borrow_mut();
+            let id = st.selected.as_deref().unwrap_or("").to_string();
+            if id.is_empty() {
+                return;
+            }
+            st.mods_toggled_name = name.clone();
+            ui.set_mods_busy(name.clone().into());
+            let current = st.mods.iter().find(|m| m.name == name).map(|m| m.enabled).unwrap_or(false);
+            st.cmd_tx.send(Cmd::ToggleMod(id, name, !current)).ok();
+        });
+    }
+    {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_notif_touched(move || {
+            let state = state.clone();
+            let ui_weak = ui_weak.clone();
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let mut st = state.borrow_mut();
+            refresh_notif_dirty(&ui, &mut st);
+        });
+    }
+    {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_notif_save(move || {
+            let state = state.clone();
+            let ui_weak = ui_weak.clone();
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let st = state.borrow();
+            let id = st.selected.as_deref().unwrap_or("").to_string();
+            drop(st);
+            if id.is_empty() {
+                return;
+            }
+            let form = read_notif_form(&ui);
+            if let Err(e) = form.validate() {
+                ui.set_notif_error(e.into());
+                return;
+            }
+            let st = state.borrow_mut();
+            let patch = serde_json::json!({ "discord": form.to_patch() });
+            st.cmd_tx.send(Cmd::NotifSave(id, patch)).ok();
+            ui.set_notif_saving(true);
+        });
+    }
+    {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_notif_revert(move || {
+            let state = state.clone();
+            let ui_weak = ui_weak.clone();
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let mut st = state.borrow_mut();
+            if let Some(id) = st.selected.clone() {
+                load_notifications(&ui, &mut st, &id);
+            }
+        });
+    }
+    {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_notif_test(move || {
+            let state = state.clone();
+            let ui_weak = ui_weak.clone();
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let st = state.borrow();
+            let id = st.selected.as_deref().unwrap_or("").to_string();
+            drop(st);
+            if id.is_empty() {
+                return;
+            }
+            let st = state.borrow_mut();
+            st.cmd_tx.send(Cmd::DiscordTest(id)).ok();
+            ui.set_notif_sending(true);
+            ui.set_notif_result("".into());
+        });
+    }
+    {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_navigate_tab(move |target| {
+            let state = state.clone();
+            let ui_weak = ui_weak.clone();
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let mut st = state.borrow_mut();
+            let current = ui.get_settings_tab();
+            // Leaving a dirty panel needs confirmation first.
+            if current != target && st.panel_dirty() {
+                st.pending_tab = Some(target);
+                let (title, text, action) = match current {
+                    1 => (
+                        "Discard unsaved changes?",
+                        "The Settings panel has unsaved changes. Leave anyway?",
+                        "discard-settings",
+                    ),
+                    2 => (
+                        "Discard unsaved changes?",
+                        "server.properties has unsaved changes. Leave anyway?",
+                        "discard-properties",
+                    ),
+                    4 => (
+                        "Discard unsaved changes?",
+                        "The Notifications panel has unsaved changes. Leave anyway?",
+                        "discard-notifications",
+                    ),
+                    // Console (0) and Mods (3) are never dirty.
+                    _ => return,
+                };
+                ui.set_confirm_title(title.into());
+                ui.set_confirm_text(text.into());
+                ui.set_confirm_action(action.into());
                 ui.set_confirm_open(true);
                 return;
             }
-            if let Some(id) = st.selected.clone() {
-                load_settings(&ui, &mut st, &id);
+            ui.set_settings_tab(target);
+            match target {
+                1 => {
+                    if st.settings_dirty {
+                        st.pending_tab = Some(1);
+                        ui.set_confirm_title("Discard unsaved changes?".into());
+                        ui.set_confirm_text(
+                            "The Settings panel has unsaved changes. Continue anyway?"
+                                .into(),
+                        );
+                        ui.set_confirm_action("discard-settings".into());
+                        ui.set_confirm_open(true);
+                        return;
+                    }
+                    if let Some(id) = st.selected.clone() {
+                        load_settings(&ui, &mut st, &id);
+                    }
+                }
+                2 => {
+                    if let Some(id) = st.selected.clone() {
+                        load_properties(&ui, &mut st, &id);
+                    }
+                }
+                3 => {
+                    if let Some(id) = st.selected.clone() {
+                        load_mods(&ui, &mut st, &id);
+                    }
+                }
+                4 => {
+                    if let Some(id) = st.selected.clone() {
+                        load_notifications(&ui, &mut st, &id);
+                    }
+                }
+                _ => {}
             }
         });
     }
@@ -723,9 +1158,20 @@ fn main() -> Result<(), slint::PlatformError> {
                     st.settings_saved.clear();
                     ui.set_settings_dirty(false);
                     ui.set_settings_error("".into());
-                    if let Some(id) = st.pending_switch.take() {
-                        st.select(&ui, &id);
-                    }
+                    ui.set_settings_status("".into());
+                    finish_pending(&mut st, &ui);
+                }
+                "discard-properties" => {
+                    st.properties_dirty = false;
+                    ui.set_properties_dirty(false);
+                    ui.set_properties_status("".into());
+                    finish_pending(&mut st, &ui);
+                }
+                "discard-notifications" => {
+                    st.notif_dirty = false;
+                    ui.set_notif_dirty(false);
+                    ui.set_notif_status("".into());
+                    finish_pending(&mut st, &ui);
                 }
                 _ => {}
             }
@@ -811,11 +1257,33 @@ fn main() -> Result<(), slint::PlatformError> {
                         ui.set_status(format!("remove instance: {e}").into());
                     }
                     UiMsg::ConfigFetched(Ok(value)) => {
-                        apply_settings(&ui, &mut st, &value);
+                        match st
+                            .config_target
+                            .take()
+                            .unwrap_or_default()
+                            .as_str()
+                        {
+                            "notifications" => {
+                                apply_notifications(&ui, &mut st, &value);
+                            }
+                            _ => apply_settings(&ui, &mut st, &value),
+                        }
                     }
                     UiMsg::ConfigFetched(Err(e)) => {
-                        ui.set_settings_error(e.into());
-                        ui.set_settings_loading(false);
+                        match st
+                            .config_target
+                            .take()
+                            .unwrap_or_default()
+                            .as_str()
+                        {
+                            "notifications" => {
+                                ui.set_notif_load_error(e.into());
+                            }
+                            _ => {
+                                ui.set_settings_error(e.into());
+                                ui.set_settings_loading(false);
+                            }
+                        }
                     }
                     UiMsg::ConfigSaved(Ok(())) => {
                         st.settings_saved = read_settings_form(&ui).snapshot();
@@ -827,6 +1295,113 @@ fn main() -> Result<(), slint::PlatformError> {
                     UiMsg::ConfigSaved(Err(e)) => {
                         ui.set_settings_error(e.into());
                         ui.set_settings_loading(false);
+                    }
+                    UiMsg::PropertiesFetched(Ok(value)) => {
+                        let text = value
+                            .get("text")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let errors: Vec<String> = value
+                            .get("errors")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|e| e.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let err_text = if errors.is_empty() {
+                            "".into()
+                        } else {
+                            errors.join(" · ")
+                        };
+                        st.properties_saved = text.clone();
+                        ui.set_properties_text(text.into());
+                        ui.set_properties_error(err_text.into());
+                        st.properties_dirty = false;
+                        ui.set_properties_dirty(false);
+                        ui.set_properties_loading(false);
+                    }
+                    UiMsg::PropertiesFetched(Err(e)) => {
+                        let friendly = if e.contains("not found") {
+                            "No server.properties in work dir.".into()
+                        } else {
+                            e.into()
+                        };
+                        ui.set_properties_error(friendly);
+                        ui.set_properties_loading(false);
+                    }
+                    UiMsg::PropertiesSaved(Ok(())) => {
+                        st.properties_saved = ui.get_properties_text().to_string();
+                        st.properties_dirty = false;
+                        ui.set_properties_dirty(false);
+                        ui.set_properties_error("".into());
+                        ui.set_properties_status("Saved.".into());
+                    }
+                    UiMsg::PropertiesSaved(Err(e)) => {
+                        ui.set_properties_error(e.into());
+                        ui.set_properties_loading(false);
+                    }
+                    UiMsg::ModsFetched(Ok(list)) => {
+                        let rows: Vec<ModRow> = list
+                            .into_iter()
+                            .map(|m| ModRow {
+                                name: m.name.into(),
+                                size: format_size(m.size).into(),
+                                enabled: m.enabled,
+                            })
+                            .collect();
+                        st.mods = rows.clone();
+                        recompute_mods(&mut st, &ui);
+                        ui.set_mods_loading(false);
+                    }
+                    UiMsg::ModsFetched(Err(e)) => {
+                        ui.set_mods_status(e.into());
+                        ui.set_mods_loading(false);
+                    }
+                    UiMsg::ModsToggled(Ok(enabled)) => {
+                        let name = std::mem::take(&mut st.mods_toggled_name);
+                        let what = if enabled { "enabled" } else { "disabled" };
+                        ui.set_mods_status(format!("{name} {what}.").into());
+                        if let Some(id) = st.selected.clone() {
+                            st.cmd_tx.send(Cmd::ListMods(id)).ok();
+                        }
+                    }
+                    UiMsg::ModsToggled(Err(e)) => {
+                        st.mods_toggled_name.clear();
+                        ui.set_mods_status(e.into());
+                    }
+                    UiMsg::NotifSaved(Ok(())) => {
+                        let form = read_notif_form(&ui);
+                        st.notif_saved = form.snapshot();
+                        st.notif_dirty = false;
+                        ui.set_notif_dirty(false);
+                        ui.set_notif_saving(false);
+                        ui.set_notif_error("".into());
+                        ui.set_notif_status("Saved.".into());
+                        ui.set_notif_webhook("".into());
+                    }
+                    UiMsg::NotifSaved(Err(e)) => {
+                        ui.set_notif_saving(false);
+                        ui.set_notif_error(e.into());
+                    }
+                    UiMsg::DiscordTestFetched(Ok(r)) => {
+                        ui.set_notif_sending(false);
+                        if r.ok {
+                            ui.set_notif_result("Test sent.".into());
+                            ui.set_notif_result_ok(true);
+                        } else {
+                            ui.set_notif_result(
+                                format!("Failed: {}", r.error.unwrap_or_default()).into(),
+                            );
+                            ui.set_notif_result_ok(false);
+                        }
+                    }
+                    UiMsg::DiscordTestFetched(Err(e)) => {
+                        ui.set_notif_sending(false);
+                        ui.set_notif_result(format!("Failed: {e}").into());
+                        ui.set_notif_result_ok(false);
                     }
                     UiMsg::JavaRuntimes(Ok(list)) => {
                         st.java_runtimes = list;
@@ -1001,4 +1576,67 @@ fn parse_scan(value: &serde_json::Value) -> ScanResult {
 
 fn yes_no(b: bool) -> &'static str {
     if b { "yes" } else { "no" }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn properties_dirty(text: &str, saved: &str) -> bool {
+        !saved.is_empty() && text != saved
+    }
+
+    #[test]
+    fn properties_dirty_transition() {
+        // Nothing loaded yet: never dirty.
+        assert!(!properties_dirty("motd=P1C3", ""));
+        // Loaded and unchanged: clean.
+        assert!(!properties_dirty("motd=P1C3\n", "motd=P1C3\n"));
+        // Edited: dirty.
+        assert!(properties_dirty("motd=P1C3-edited\n", "motd=P1C3\n"));
+        // Reverted back to the saved text: clean again.
+        assert!(!properties_dirty("motd=P1C3\n", "motd=P1C3\n"));
+    }
+
+    #[test]
+    fn mods_filter_is_case_insensitive() {
+        let mods = vec![
+            ModRow {
+                name: "Alpha.jar".into(),
+                size: "1.0 KiB".into(),
+                enabled: true,
+            },
+            ModRow {
+                name: "beta.jar".into(),
+                size: "2.0 KiB".into(),
+                enabled: false,
+            },
+            ModRow {
+                name: "GAMMA.jar.disabled".into(),
+                size: "3.0 KiB".into(),
+                enabled: true,
+            },
+        ];
+        let filter = |m: &ModRow, f: &str| {
+            let f = f.to_lowercase();
+            f.is_empty() || m.name.to_lowercase().contains(&f)
+        };
+        assert_eq!(mods.iter().filter(|m| filter(m, "ALP")).count(), 1);
+        assert_eq!(mods.iter().filter(|m| filter(m, "alp")).count(), 1);
+        assert_eq!(mods.iter().filter(|m| filter(m, "jar")).count(), 3);
+        assert_eq!(
+            mods.iter().filter(|m| filter(m, "jar.disabled")).count(),
+            1
+        );
+        assert_eq!(mods.iter().filter(|m| filter(m, "")).count(), 3);
+    }
+
+    #[test]
+    fn format_size_renders_units() {
+        assert_eq!(format_size(0), "0.0 B");
+        assert_eq!(format_size(500), "500.0 B");
+        assert_eq!(format_size(1500), "1.5 KiB");
+        assert_eq!(format_size(1_500_000), "1.4 MiB");
+        assert_eq!(format_size(1_500_000_000), "1.4 GiB");
+    }
 }

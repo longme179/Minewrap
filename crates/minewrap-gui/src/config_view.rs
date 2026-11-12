@@ -5,7 +5,7 @@
 //! SPDX-License-Identifier: AGPL-3.0-only
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// Aikar's Flags (https://aikar.co/flags.html) — the recommended JVM
 /// preset for modern Minecraft servers. Mirror of
@@ -489,8 +489,139 @@ impl SettingsForm {
         }
         Ok(())
     }
+}
+
+/// Discord notifier form state, mirroring `DiscordConfig`'s view shape
+/// (`GET …/config` → `discord` group). `webhook_url` is write-only: it is
+/// set only when the user typed a new URL, so a save never reveals the
+/// stored secret and only replaces it on explicit input.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DiscordForm {
+    pub enabled: bool,
+    pub mode: String,
+    pub interval_seconds: f64,
+    pub first_push_delay_seconds: f64,
+    pub log_lines: usize,
+    pub max_log_chars: usize,
+    pub state_change_posts: bool,
+    pub state_change_debounce_seconds: f64,
+    pub redact_regexes: Vec<String>,
+    pub webhook_url: Option<String>,
+}
+
+impl DiscordForm {
+    /// Read the `discord` group of a `GET …/config` instance view.
+    pub fn from_view(value: &Value) -> Self {
+        let discord = value
+            .get("discord")
+            .and_then(|v| v.as_object())
+            .cloned()
+            .unwrap_or_default();
+        let parse_f64 = |k: &str, def: f64| {
+            discord.get(k).and_then(|v| v.as_f64()).unwrap_or(def)
+        };
+        let parse_usize = |k: &str, def: usize| {
+            discord
+                .get(k)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(def as u64) as usize
+        };
+        let redact: Vec<String> = discord
+            .get("redact_regexes")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self {
+            enabled: discord.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false),
+            mode: discord
+                .get("mode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("edit-in-place")
+                .to_string(),
+            interval_seconds: parse_f64("interval_seconds", 600.0),
+            first_push_delay_seconds: parse_f64("first_push_delay_seconds", 10.0),
+            log_lines: parse_usize("log_lines", 15),
+            max_log_chars: parse_usize("max_log_chars", 1500),
+            state_change_posts: discord
+                .get("state_change_posts")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
+            state_change_debounce_seconds: parse_f64("state_change_debounce_seconds", 30.0),
+            redact_regexes: redact,
+            webhook_url: None, // write-only: never revealed by the view
+        }
     }
 
+    /// Build the `discord` group of a `PUT …/config` patch. `webhook_url`
+    /// is included only when the user typed a new value.
+    pub fn to_patch(&self) -> Value {
+        let mut map = serde_json::Map::new();
+        map.insert("enabled".to_string(), Value::Bool(self.enabled));
+        map.insert("mode".to_string(), Value::String(self.mode.clone()));
+        map.insert(
+            "interval_seconds".to_string(),
+            json!(self.interval_seconds),
+        );
+        map.insert(
+            "first_push_delay_seconds".to_string(),
+            json!(self.first_push_delay_seconds),
+        );
+        map.insert("log_lines".to_string(), json!(self.log_lines));
+        map.insert("max_log_chars".to_string(), json!(self.max_log_chars));
+        map.insert(
+            "state_change_posts".to_string(),
+            Value::Bool(self.state_change_posts),
+        );
+        map.insert(
+            "state_change_debounce_seconds".to_string(),
+            json!(self.state_change_debounce_seconds),
+        );
+        map.insert(
+            "redact_regexes".to_string(),
+            Value::Array(
+                self.redact_regexes
+                    .iter()
+                    .map(|s| Value::String(s.clone()))
+                    .collect(),
+            ),
+        );
+        if let Some(url) = &self.webhook_url {
+            if !url.trim().is_empty() {
+                map.insert(
+                    "webhook_url".to_string(),
+                    Value::String(url.trim().to_string()),
+                );
+            }
+        }
+        Value::Object(map)
+    }
+
+    /// JSON snapshot for dirty tracking.
+    pub fn snapshot(&self) -> String {
+        serde_json::to_string(self).unwrap()
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        match self.mode.as_str() {
+            "edit-in-place" | "new-message" => {}
+            other => return Err(format!("unknown discord mode: {other:?}")),
+        }
+        if self.interval_seconds < 0.1 {
+            return Err("interval_seconds must be >= 0.1".into());
+        }
+        if self.log_lines > 50 {
+            return Err("log_lines must be <= 50".into());
+        }
+        if self.max_log_chars > 4096 {
+            return Err("max_log_chars must be <= 4096".into());
+        }
+        Ok(())
+    }
+}
 
 /// `serde_json::Number` from an `f64`, falling back to an integer when the
 /// float is not representable (e.g. NaN) — keeps the patch JSON tidy.
@@ -730,5 +861,83 @@ mod tests {
         assert_ne!(snap1, edited.snapshot());
         assert_eq!(form.validate(&[]), Ok(()));
         assert_eq!(edited.validate(&[]), Ok(()));
+    }
+
+    #[test]
+    fn discord_form_round_trip() {
+        let form = DiscordForm {
+            enabled: true,
+            mode: "new-message".into(),
+            interval_seconds: 120.0,
+            first_push_delay_seconds: 5.0,
+            log_lines: 10,
+            max_log_chars: 500,
+            state_change_posts: false,
+            state_change_debounce_seconds: 15.0,
+            redact_regexes: vec!["token".to_string(), "password".to_string()],
+            webhook_url: Some("https://discord.com/api/webhooks/123".into()),
+        };
+        let patch = form.to_patch();
+        // to_patch() yields the discord group object directly (flat keys).
+        assert_eq!(patch.get("enabled").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(patch.get("mode").and_then(|v| v.as_str()), Some("new-message"));
+        assert_eq!(
+            patch.get("interval_seconds").and_then(|v| v.as_f64()),
+            Some(120.0)
+        );
+        assert_eq!(patch.get("log_lines").and_then(|v| v.as_u64()), Some(10));
+        assert_eq!(
+            patch.get("webhook_url").and_then(|v| v.as_str()),
+            Some("https://discord.com/api/webhooks/123")
+        );
+
+        // webhook omitted when not set.
+        let mut no_hook = form.clone();
+        no_hook.webhook_url = None;
+        let patch = no_hook.to_patch();
+        assert!(!patch.as_object().unwrap().contains_key("webhook_url"));
+
+        // from_view round trip: wrap the flat patch under a "discord" key.
+        let viewed = serde_json::json!({ "discord": patch });
+        let parsed = DiscordForm::from_view(&viewed);
+        assert_eq!(parsed.enabled, form.enabled);
+        assert_eq!(parsed.mode, form.mode);
+        assert_eq!((parsed.interval_seconds * 10.0) as u32, 1200);
+        assert_eq!((parsed.first_push_delay_seconds * 10.0) as u32, 50);
+        assert_eq!(parsed.log_lines, 10);
+        assert_eq!(parsed.max_log_chars, 500);
+        assert_eq!(parsed.state_change_posts, false);
+        assert_eq!((parsed.state_change_debounce_seconds * 10.0) as u32, 150);
+        assert_eq!(parsed.redact_regexes, vec!["token".to_string(), "password".to_string()]);
+        assert_eq!(parsed.webhook_url, None);
+    }
+
+    #[test]
+    fn discord_form_validation() {
+        let form = DiscordForm {
+            enabled: false,
+            mode: "edit-in-place".into(),
+            interval_seconds: 600.0,
+            first_push_delay_seconds: 10.0,
+            log_lines: 15,
+            max_log_chars: 1500,
+            state_change_posts: true,
+            state_change_debounce_seconds: 30.0,
+            redact_regexes: Vec::new(),
+            webhook_url: None,
+        };
+        assert!(form.validate().is_ok());
+        let mut bad = form.clone();
+        bad.mode = "bogus".into();
+        assert!(bad.validate().is_err());
+        let mut bad = form.clone();
+        bad.interval_seconds = 0.01;
+        assert!(bad.validate().is_err());
+        let mut bad = form.clone();
+        bad.log_lines = 99;
+        assert!(bad.validate().is_err());
+        let mut bad = form.clone();
+        bad.max_log_chars = 9999;
+        assert!(bad.validate().is_err());
     }
 }
