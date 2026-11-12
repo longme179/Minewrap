@@ -1,6 +1,6 @@
 [package]
 name = "minewrap-tauri"
-version = "1.9.3"
+version = "1.10.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "Tauri shell for Minewrap v2 (local node, IPC routing)"
@@ -13,6 +13,14 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "minewrap-tauri"
 path = "src/main.rs"
 
+[features]
+# Production asset embedding. Without this feature generate_context! serves
+# the app from devUrl (http://localhost:5173) even in release builds, because
+# build.sh compiles the GUI with bare cargo instead of the tauri CLI (which
+# would pass the feature for us). Symptom without it: WebKit "Could not
+# connect to localhost" error page whenever no dev server is listening.
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -22,7 +30,6 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-chrono = { version = "0.4", default-features = false, features = ["clock", "alloc", "serde"] }
-minewrap-core = { path = "../crates/minewrap-core" }
 minewrap-remote = { path = "../crates/minewrap-remote" }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"

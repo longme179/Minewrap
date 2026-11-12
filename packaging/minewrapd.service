@@ -1,13 +1,21 @@
 [Unit]
-Description=Minewrap daemon (headless, always-on Discord)
+Description=Minewrap daemon (headless, always-on: servers + SLP polling + Discord)
 After=network.target
 
 [Service]
 Type=simple
 ExecStart=%h/.local/bin/minewrapd
 Environment=MINEWRAP_CONFIG=%h/.config/minewrap/minewrap.toml
+# D1: the daemon is I/O-bound (a few sockets + subprocess pipes);
+# 2 worker threads measured -0.13 MiB PSS and 13 -> 3 threads (v1.9.3
+# report §D1). MALLOC_ARENA_MAX=2 is the standard glibc deploy trim.
+Environment=TOKIO_WORKER_THREADS=2
+Environment=MALLOC_ARENA_MAX=2
 Restart=on-failure
 RestartSec=5
+# SIGTERM stops every instance gracefully (stdin stop -> TERM -> KILL),
+# then the daemon exits 0 (v1.10.0 task B5).
+TimeoutStopSec=120
 # Keeps the token file 0600 (minewrapd itself writes it that way).
 UMask=0077
 

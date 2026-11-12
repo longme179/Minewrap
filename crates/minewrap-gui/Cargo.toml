@@ -1,0 +1,43 @@
+[package]
+name = "minewrap-gui"
+version = "1.10.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+description = "Slint GUI for Minewrap (pure-Rust client for minewrapd)"
+build = "build.rs"
+
+[lib]
+name = "minewrap_gui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "minewrap-gui"
+path = "src/main.rs"
+
+[features]
+# Tuned profile (measured 13.7 MiB PSS in the C1 spike): accessibility OFF.
+# Build with `--no-default-features` for the measured configuration.
+default = ["accessibility"]
+accessibility = ["slint/accessibility"]
+
+[dependencies]
+slint = { version = "1.18", default-features = false, features = [
+    "compat-1-2",
+    "backend-winit-wayland",
+    "backend-winit-x11",
+    "renderer-software",
+] }
+arboard = { version = "3", features = ["wayland-data-control"] }
+minewrap-remote = { path = "../minewrap-remote" }
+chrono = { version = "0.4", default-features = false, features = ["clock", "alloc", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+
+[build-dependencies]
+slint-build = { version = "1.18", default-features = false, features = ["compat-1-18"] }
+
+[lints.rust]
+warnings = "deny"

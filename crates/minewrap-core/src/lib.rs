@@ -23,14 +23,24 @@ pub use config::{
     RestartConfig,
 };
 pub use discord::{Notifier, build_state_change_embed, build_status_embed};
-pub use events::{Event, EventBus, EventBus as EventBusT, LogLineEvent, RestartLoopEvent, StateChange};
+pub use events::{
+    Event, EventBus, EventBus as EventBusT, LogLineEvent, RestartLoopEvent, StateChange,
+};
 pub use java::{JavaRuntime, detect_all, min_java_for_minecraft};
-pub use launch::{LaunchCandidate, LaunchKind, WorkDirReport, inspect_jar, report_work_dir, scan_work_dir, suggested_for_mode};
+pub use launch::{
+    LaunchCandidate, LaunchKind, WorkDirReport, inspect_jar, report_work_dir, scan_work_dir,
+    suggested_for_mode,
+};
 pub use logs::{LogBuffer, LogLine, LogLineBatch, RotatingFile};
-pub use poller::{InstanceSnapshot, InstanceState, InstanceSummary, ProbeInfo, Poller, probe_once};
-pub use process::{Control, OwnerHandle, ProcessError, ProcessManager, ProcessState, ProcessStatus, spawn_reader, spawn_server};
 pub use mods::{ModEntry, format_size, list_mods, toggle_mod};
-pub use properties::{PropertiesDocument, PropertyEntry, confine_path, properties_path, validate_property};
+pub use poller::{InstanceSnapshot, InstanceState, InstanceSummary, Poller, ProbeInfo, probe_once};
+pub use process::{
+    Control, OwnerHandle, ProcessError, ProcessManager, ProcessState, ProcessStatus, spawn_reader,
+    spawn_server,
+};
+pub use properties::{
+    PropertiesDocument, PropertyEntry, confine_path, properties_path, validate_property,
+};
 
 /// API contract version reported by `minewrapd` (v1.0.0 Python API was "0.1").
 pub const API_VERSION: &str = "1.0";

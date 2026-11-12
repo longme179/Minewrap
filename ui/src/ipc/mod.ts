@@ -37,7 +37,7 @@ export interface SnapshotDto {
 
 export interface LogLine {
   seq: number;
-  ts: string; // ISO 8601 (chrono ts_milliseconds)
+  ts: number; // epoch milliseconds (chrono ts_milliseconds — Rust wire format)
   line: string;
 }
 
@@ -197,6 +197,8 @@ export interface IpcAdapter {
   listNodes(): Promise<NodeSummary[]>;
   addNode(input: NodeInput): Promise<NodeSummary>;
   removeNode(nodeId: NodeId): Promise<Action>;
+  /** v1.10.0: re-probe (and for the local node, re-spawn) a node. */
+  retryNode?(nodeId: NodeId): Promise<Action>;
   updateNode?(nodeId: NodeId, input: NodeInput): Promise<NodeSummary>;
   listInstances(nodeId: NodeId): Promise<InstanceSummary[]>;
   addInstance(input: InstanceInput): Promise<Action>;

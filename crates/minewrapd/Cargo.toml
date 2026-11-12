@@ -1,6 +1,6 @@
 [package]
 name = "minewrapd"
-version = "1.9.3"
+version = "1.10.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "Headless axum daemon for Minewrap v2 (REST + WebSocket)"
@@ -19,3 +19,6 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "allo
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 futures-util = "0.3"
 anyhow = "1"
+
+[dev-dependencies]
+tokio-tungstenite = "0.24"

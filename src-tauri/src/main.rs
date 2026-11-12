@@ -1,16 +1,22 @@
-//! Tauri entrypoint: builds the shell, loads `minewrap.toml` (or the
-//! example config next to the binary), manages `NodeService`,
-//! registers commands, and forwards core events to the webview
-//! (`logs:batch` / `state:changed`).
+//! Tauri entrypoint (v1.10.0 P0 daemon-first): loads `minewrap.toml`
+//! to learn the local daemon's host/port/data_dir, auto-spawns
+//! `minewrapd` when `/health` refuses, then runs one WS `/events`
+//! forwarder per node, mapping daemon messages to the IPC events the
+//! webview has always consumed (`logs:batch`, `state:changed`,
+//! `nodes:changed`).
+//!
+//! Exit policy (breaking change in v1.10.0): closing the window only
+//! closes the connections — the daemon (and every server in it) keeps
+//! running, Discord keeps pushing. "Stop everything" is now the
+//! daemon's SIGTERM path (`systemctl --user stop minewrapd` or
+//! `kill -TERM`), which stops all instances gracefully then exits.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use minewrap_tauri::{NodeService, commands};
 use tauri::Emitter;
-
-static EXITING: AtomicBool = AtomicBool::new(false);
 
 fn config_dir() -> PathBuf {
     if let Some(path) = std::env::var_os("XDG_CONFIG_HOME") {
@@ -46,232 +52,171 @@ fn default_config_path() -> PathBuf {
         let _ = std::fs::copy(legacy_cwd, &stable);
         return stable;
     }
-    let defaults = minewrap_core::DaemonConfig::default();
-    let _ = defaults.save_to(&stable.to_string_lossy());
+    // First run: write a default config so both halves agree on
+    // host/port/data_dir. Settings mirror `minewrap_core::DaemonConfig`.
+    let _ = std::fs::write(
+        &stable,
+        "[daemon]\nhost = \"127.0.0.1\"\nport = 8080\ndata_dir = \"./data\"\n",
+    );
     stable
 }
 
-
-/// Locate the bundled `minewrapd` next to the Tauri binary (AppImage
-/// `usr/bin/` or a portable `binaries/` sibling). Returns `None` when
-/// the daemon is not shipped (dev builds).
-#[allow(dead_code)]
-fn bundled_daemon_path() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
-    for cand in [
-        dir.join("minewrapd"),
-        dir.join("binaries").join("minewrapd"),
-        dir.join("binaries").join("minewrapd-x86_64-unknown-linux-gnu"),
-    ] {
-        if cand.exists() {
-            return Some(cand);
-        }
-    }
-    None
-}
-
-/// Sidecar spawn (AppImage contract): if `GET /health` is refused,
-/// exec the bundled daemon — with explicit args, never `sh -c` —
-/// then register the node. The embedded `NodeService` core remains
-/// the local node regardless; the sidecar is the always-on path.
-#[allow(dead_code)]
-fn ensure_daemon_running() -> Option<std::process::Child> {
-    let daemon = match bundled_daemon_path() {
-        Some(p) => p,
-        None => return None, // not shipped (dev)
-    };
-    // Pre-flight health check — skip the spawn when already up.
-    let addr = "127.0.0.1:8080";
-    if std::net::TcpStream::connect(addr).is_ok() {
-        return None;
-    }
-    let config = default_config_path();
-    let config_str = config.to_string_lossy().to_string();
-    let out = std::process::Command::new(&daemon)
-        .env("MINEWRAP_CONFIG", &config_str)
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .spawn();
-    let child = match out {
-        Ok(c) => {
-            eprintln!("minewrap: spawned bundled daemon {daemon:?} (config {config_str})");
-            Some(c)
-        }
-        Err(e) => {
-            eprintln!("minewrap: failed to spawn bundled daemon {daemon:?}: {e}");
-            None
-        }
-    };
-    // Wait up to 10 s for `GET /health` (the daemon binds 127.0.0.1).
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build();
-    if let Ok(rt) = rt {
-        rt.block_on(async {
-            for _ in 0..20 {
-                if std::net::TcpStream::connect(addr).is_ok() {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+/// One forwarder per node (task B7): a `/events` WS connection that
+/// maps daemon messages to the webview IPC events, reconnects with
+/// backoff, and backfills the log gap (`since_seq`) after reconnects.
+async fn forward_node(handle: tauri::AppHandle, svc: Arc<NodeService>, node_id: String) {
+    use futures_util::StreamExt;
+    use minewrap_remote::types::NodeState;
+    let mut backoff = Duration::from_secs(1);
+    // Last delivered seq per instance (for reconnect backfill).
+    let mut last_seq: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    loop {
+        let client = match svc.client_of(&node_id, false) {
+            Ok(c) => c,
+            Err(_) => {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
             }
-        });
-    }
-    child
-}
-
-async fn spawn_forwarder_future(
-    handle: tauri::AppHandle,
-    svc: Arc<NodeService>,
-) {
-    use minewrap_core::Event;
-    let mut sub = svc.subscribe();
-        // pending: (instance_id, lines) per instance so batches carry the
-        // correct instance_id (was previously hardcoded empty).
-        let mut pending: Vec<(String, minewrap_core::LogLine)> = Vec::new();
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(40));
-        loop {
-            tokio::select! {
-                ev = sub.rx.recv() => {
-                    match ev {
-                        Some(Event::LogLine(le)) => pending.push((le.instance_id.clone(), le.line)),
-                        Some(Event::StateChange(sc)) => {
-                            svc.update_process_state(&sc.instance_id, sc.new_state.as_str(), sc.reason.as_str());
-                            let payload = serde_json::json!({
-                                "node_id": "local",
-                                "instance_id": sc.instance_id,
-                                "old_state": sc.old_state,
-                                "new_state": sc.new_state,
-                                "reason": sc.reason,
-                            });
-                            let _ = handle.emit("state:changed", payload.clone());
-
-                            // Best-effort Discord notification (state change + status post).
-                            if let (Ok(cfg), Ok(snap_dto)) = (svc.config_of(&sc.instance_id), svc.snapshot("local", &sc.instance_id)) {
-                                if cfg.discord.enabled && cfg.discord.webhook_set() {
-                                    let svc2 = svc.clone();
-                                    let sc2 = sc.clone();
-                                    let lines = svc.backfill_logs("local", &sc.instance_id, cfg.discord.log_lines, 0).unwrap_or_default();
-                                    tokio::spawn(async move {
-                                        let snap = minewrap_core::InstanceSnapshot {
-                                            id: snap_dto.id,
-                                            name: snap_dto.name,
-                                            combined_state: snap_dto.combined_state,
-                                            process: minewrap_core::ProcessStatus {
-                                                state: match snap_dto.process_state.as_str() {
-                                                    "online" => minewrap_core::ProcessState::Online,
-                                                    "starting" => minewrap_core::ProcessState::Starting,
-                                                    "stopping" => minewrap_core::ProcessState::Stopping,
-                                                    "crashed" => minewrap_core::ProcessState::Crashed,
-                                                    _ => minewrap_core::ProcessState::Offline,
-                                                },
-                                                pid: None,
-                                                started_at: None,
-                                                stopped_at: None,
-                                                exit_code: None,
-                                                requested_stop: false,
-                                                forced_stop: false,
-                                                restart_count: 0,
-                                                crash_count: 0,
-                                                uptime_seconds: None,
-                                            },
-                                            probe: minewrap_core::ProbeInfo::default(),
-                                            updated_at: chrono::Utc::now(),
-                                        };
-                                        let notifier = minewrap_core::Notifier::new(
-                                            cfg.discord.clone(),
-                                            reqwest::Client::new(),
-                                            svc2.data_dir().join("discord"),
-                                            cfg.id.clone(),
-                                        );
-                                        if cfg.discord.state_change_posts {
-                                            let embed = minewrap_core::build_state_change_embed(&snap, &sc2.old_state, &sc2.new_state, &sc2.reason);
-                                            let _ = notifier.request(&format!("{}?wait=true", notifier.webhook()), "POST", &embed).await;
-                                        }
-                                        let _ = notifier.push_status(&snap, &lines).await;
+        };
+        match client.events_connect().await {
+            Ok((stream, _hello)) => {
+                svc.set_node_state(&node_id, NodeState::Connected);
+                let _ = handle.emit(
+                    "nodes:changed",
+                    serde_json::json!({"node_id": node_id, "state": "connected"}),
+                );
+                backoff = Duration::from_secs(1);
+                let mut read = stream;
+                loop {
+                    match read.next().await {
+                        Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
+                            let v: serde_json::Value =
+                                serde_json::from_str(&text).unwrap_or(serde_json::json!({}));
+                            match v["type"].as_str() {
+                                Some("state_change") => {
+                                    let payload = serde_json::json!({
+                                        "node_id": node_id,
+                                        "instance_id": v["instance_id"],
+                                        "old_state": v["old_state"],
+                                        "new_state": v["new_state"],
+                                        "reason": v["reason"],
                                     });
+                                    let _ = handle.emit("state:changed", payload);
                                 }
+                                Some("log_batch") => {
+                                    if let Some(last) =
+                                        v["last_seq"].as_u64()
+                                    {
+                                        last_seq
+                                            .insert(v["instance_id"].as_str().unwrap_or("").to_string(), last);
+                                    }
+                                    let payload = serde_json::json!({
+                                        "node_id": node_id,
+                                        "instance_id": v["instance_id"],
+                                        "lines": v["lines"],
+                                        "first_seq": v["first_seq"],
+                                        "last_seq": v["last_seq"],
+                                    });
+                                    let _ = handle.emit("logs:batch", payload);
+                                }
+                                Some("instances_changed") => {
+                                    let _ = handle.emit(
+                                        "nodes:changed",
+                                        serde_json::json!({"node_id": node_id}),
+                                    );
+                                }
+                                _ => {}
                             }
                         }
-                        Some(_) => {}
-                        None => break,
+                        Some(Ok(_)) => {}
+                        Some(Err(_)) | None => break,
                     }
                 }
-                _ = interval.tick() => {
-                    if !pending.is_empty() {
-                        // Split by instance; a single tick can hold lines
-                        // from several servers.
-                        use std::collections::HashMap;
-                        let mut by_instance: HashMap<String, Vec<minewrap_core::LogLine>> = HashMap::new();
-                        for (iid, line) in pending.drain(..) {
-                            by_instance.entry(iid).or_default().push(line);
-                        }
-                        for (instance_id, lines) in by_instance {
-                            let first = lines.first().map(|l| l.seq).unwrap_or(0);
-                            let last = lines.last().map(|l| l.seq).unwrap_or(0);
-                            let payload = serde_json::json!({
-                                "node_id": "local",
-                                "instance_id": instance_id,
-                                "lines": lines,
-                                "first_seq": first,
-                                "last_seq": last,
-                            });
-                            let _ = handle.emit("logs:batch", payload);
-                        }
+                // Socket dropped: mark offline, reconnect below.
+                svc.set_node_state(&node_id, NodeState::Offline);
+                let _ = handle.emit(
+                    "nodes:changed",
+                    serde_json::json!({"node_id": node_id, "state": "offline"}),
+                );
+            }
+            Err(e) => {
+                let state = minewrap_remote::RemoteClient::state_from_error(&e);
+                svc.set_node_state(&node_id, state);
+            }
+        }
+        // Backfill the gap for instances we were streaming, then retry.
+        if let Ok(client) = svc.client_of(&node_id, false) {
+            for (instance_id, since) in last_seq.clone() {
+                if let Ok(lines) = client.logs_typed(&instance_id, 200, since).await {
+                    if !lines.is_empty() {
+                        let first = lines.first().map(|l| l.seq).unwrap_or(0);
+                        let last = lines.last().map(|l| l.seq).unwrap_or(0);
+                        let payload = serde_json::json!({
+                            "node_id": node_id,
+                            "instance_id": instance_id,
+                            "lines": lines,
+                            "first_seq": first,
+                            "last_seq": last,
+                        });
+                        let _ = handle.emit("logs:batch", payload);
                     }
                 }
             }
+        }
+        tokio::time::sleep(backoff).await;
+        backoff = (backoff * 2).min(Duration::from_secs(30));
     }
 }
 
 fn main() {
-    // Design choice: GUI exit must stop all servers/nodes and leave
-    // no background daemon/process running. Do not auto-spawn the
-    // bundled daemon sidecar for the desktop app.
-    let mut _daemon_child: Option<std::process::Child> = None;
-
     let config_path = default_config_path();
     let config_str = config_path.to_string_lossy().to_string();
     let node_service = match NodeService::load(&config_str) {
         Ok(svc) => Arc::new(svc),
         Err(e) => {
-            eprintln!("minewrap: failed to load config {config_str}: {e}; using stable defaults");
-            let defaults = minewrap_core::DaemonConfig::default();
-            let _ = defaults.save_to(&config_str);
-            Arc::new(NodeService::load(&config_str).unwrap_or_else(|_| {
-                NodeService::from_config(
-                    minewrap_core::DaemonConfig::default(),
-                    Arc::new(minewrap_core::EventBus::new()),
-                )
-            }))
+            eprintln!(
+                "minewrap: failed to load config {config_str}: {e}; writing defaults and retrying"
+            );
+            let _ = std::fs::write(
+                &config_path,
+                "[daemon]\nhost = \"127.0.0.1\"\nport = 8080\ndata_dir = \"./data\"\n",
+            );
+            Arc::new(
+                NodeService::load(&config_str)
+                    .expect("config rewritten with defaults; second load must succeed"),
+            )
         }
     };
 
-    let svc_for_run = node_service.clone();
+    // Auto-spawn the local daemon (blocking, bounded ~11 s worst case).
+    if let Err(e) = node_service.ensure_local_daemon() {
+        eprintln!("minewrap: local daemon unavailable: {e}");
+        node_service.set_node_state("local", minewrap_remote::types::NodeState::Offline);
+    }
+
+    let svc_for_setup = node_service.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(node_service.clone())
         .setup(move |app| {
-            let svc = node_service.clone();
             let handle = app.handle().clone();
-            // Spawn the forwarder on a dedicated Tokio runtime — the
-            // AppImage entry has no ambient runtime until the webview
-            // is ready.
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .build()
-                    .expect("event forwarder runtime");
-                rt.block_on(async {
-                    spawn_forwarder_future(handle, svc).await;
+            // One forwarder per node on the shared Tauri async runtime
+            // (no dedicated thread+runtime anymore — gap G3).
+            for node in svc_for_setup.list_nodes().unwrap_or_default() {
+                let h = handle.clone();
+                let svc = svc_for_setup.clone();
+                let id = node.id;
+                tauri::async_runtime::spawn(async move {
+                    forward_node(h, svc, id).await;
                 });
-            });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_nodes,
             commands::add_node,
             commands::remove_node,
+            commands::retry_node,
             commands::list_instances,
             commands::get_snapshot,
             commands::instance_start,
@@ -294,35 +239,10 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building Minewrap")
-        .run(move |app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
-                if EXITING.swap(true, Ordering::SeqCst) {
-                    return;
-                }
-                api.prevent_exit();
-                let svc = svc_for_run.clone();
-                let handle = app_handle.clone();
-                std::thread::spawn(move || {
-                    let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        let rt = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build();
-                        if let Ok(rt) = rt {
-                            rt.block_on(async move {
-                                let _ = tokio::time::timeout(
-                                    std::time::Duration::from_secs(8),
-                                    svc.stop_all_local(),
-                                )
-                                .await;
-                            });
-                        }
-                    }));
-                    if ok.is_err() {
-                        eprintln!("minewrap: cleanup panicked during exit");
-                    }
-                    handle.exit(0);
-                    std::process::exit(0);
-                });
-            }
+        .run(|_app_handle, _event| {
+            // v1.10.0 exit policy: closing the GUI only closes the
+            // window (and the forwarder sockets die with the process).
+            // Servers live in the daemon; stop them via
+            // `systemctl --user stop minewrapd` or `kill -TERM`.
         });
 }

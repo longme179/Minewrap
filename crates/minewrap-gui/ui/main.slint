@@ -1,0 +1,1217 @@
+// Minewrap P1 — Slint GUI main window (chunk 1 + chunk 2).
+// Chunk 1: daemon discovery/auto-spawn, 2 s instance-list polling,
+// console WebSocket with `since_seq` backfill, 1000-line ring with
+// per-level colours and Ctrl+C copy, Start/Stop + stdin command input.
+// Chunk 2: add-instance wizard dialog, per-instance Settings panel
+// (Instance / Probe / Restart, dirty tracking, discard confirmation),
+// Remove instance with confirmation.
+// SPDX-License-Identifier: AGPL-3.0-only
+
+import { ComboBox, CheckBox, LineEdit, ListView, ScrollView, TextEdit } from "std-widgets.slint";
+
+export struct LogLine {
+    seq: int,
+    ts: string,
+    tag: string,
+    level: int, // 0 INFO, 1 WARN, 2 ERROR, 3 DEBUG
+    msg: string,
+}
+
+export struct InstRow {
+    id: string,
+    name: string,
+    state: string, // combined_state label
+    code: int,     // 0 online, 1 starting, 2 stopping, 3 offline,
+                   // 4 crashed, 5 unresponsive, 6 unknown
+}
+
+global Tok {
+    out property <color> bg: #0f172a;
+    out property <color> fg: #f8fafc;
+    out property <color> card: #1b2336;
+    out property <color> muted: #272f42;
+    out property <color> muted-fg: #94a3b8;
+    out property <color> border: #475569;
+    out property <color> accent: #22c55e;
+    out property <color> err: #ef4444;
+    out property <color> warn: #f59e0b;
+    out property <color> debug: #38bdf8;
+    out property <color> online: #22c55e;
+    out property <color> offline: #64748b;
+    out property <color> crashed: #ef4444;
+    out property <color> selection: #334155;
+}
+
+component TokBtn inherits Rectangle {
+    in property <string> label: "";
+    in property <bool> active: false;
+    in property <bool> enabled: true;
+    in property <bool> danger: false;
+    callback clicked;
+    height: 26px;
+    width: max(72px, lbl.preferred-width + 20px);
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: !root.enabled ? Tok.muted
+        : (root.danger ? Tok.err : (root.active ? Tok.accent : Tok.border));
+    background: (!root.enabled || !ta.has-hover) ? Tok.card : Tok.muted;
+    ta := TouchArea {
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
+    }
+    lbl := Text {
+        text: root.label;
+        color: !root.enabled ? Tok.muted-fg : (root.active ? Tok.accent : (root.danger ? Tok.err : Tok.fg));
+        font-size: 10pt;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component InstanceRow inherits Rectangle {
+    in property <string> id: "";
+    in property <string> name: "";
+    in property <string> state: "";
+    in property <int> code: 3;
+    in property <bool> selected: false;
+    callback picked;
+    height: 44px;
+    border-radius: 6px;
+    background: root.selected ? Tok.muted : (ta.has-hover ? #1f2940 : transparent);
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 8px;
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: root.code == 0 ? Tok.online
+                : root.code == 1 || root.code == 2 ? Tok.warn
+                : root.code == 4 || root.code == 5 ? Tok.crashed
+                : Tok.offline;
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.name;
+                color: Tok.fg;
+                font-size: 10pt;
+                overflow: elide;
+            }
+            Text {
+                text: root.id + " · " + root.state;
+                color: Tok.muted-fg;
+                font-size: 8pt;
+                overflow: elide;
+            }
+        }
+    }
+    ta := TouchArea { clicked => { root.picked(); } }
+}
+
+component ErrorText inherits Text {
+    in property <string> content: "";
+    text: root.content;
+    color: #ef4444;
+    font-size: 9pt;
+    overflow: elide;
+}
+
+component Btn2 inherits Rectangle {
+    in property <string> label: "";
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 32px;
+    width: max(88px, txt.preferred-width + 24px);
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: !root.enabled ? #475569 : (root.primary ? #22c55e : #475569);
+    background: (!root.enabled || root.primary) ? #1f2940 : #1b2336;
+    ta := TouchArea {
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
+    }
+    txt := Text {
+        text: root.label;
+        color: !root.enabled ? #94a3b8 : (root.primary ? #ffffff : #f8fafc);
+        font-size: 10pt;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component App inherits Window {
+    width: 1280px;
+    height: 800px;
+    title: "Minewrap";
+    background: Tok.bg;
+    default-font-family: "Noto Sans";
+    default-font-size: 10pt;
+
+    in-out property <[InstRow]> instances;
+    in-out property <[LogLine]> lines;
+    in-out property <string> selected-id: "";
+    in-out property <string> instance-name: "";
+    in-out property <string> instance-state: "—";
+    in-out property <int> instance-code: 6;
+    in-out property <bool> stick: true;
+    in-out property <int> sel-lo: -1;
+    in-out property <int> sel-hi: -1;
+    in-out property <bool> daemon-ok: false;
+    in-out property <string> daemon-info: "connecting…";
+    in-out property <bool> ws-live: false;
+    in-out property <string> status: "";
+    in-out property <string> cmd-text: "";
+
+    // --- navigation ---
+    in-out property <int> settings-tab: 0; // 0 console, 1 settings
+
+    // --- Settings panel (bound two-way by the form widgets) ---
+    in-out property <string> settings-name: "";
+    in-out property <string> settings-work-dir: "";
+    in-out property <string> settings-java: "java";
+    in-out property <string> settings-min-ram: "2048";
+    in-out property <string> settings-max-ram: "4096";
+    in-out property <string> settings-preset: "none";
+    in-out property <string> settings-jvm-extra: "";
+    in-out property <string> settings-launch-mode: "jar";
+    in-out property <string> settings-launch-args: "";
+    in-out property <bool> settings-autostart: false;
+    in-out property <string> settings-probe-host: "127.0.0.1";
+    in-out property <string> settings-probe-port: "25565";
+    in-out property <bool> settings-probe-query: false;
+    in-out property <string> settings-probe-timeout: "3";
+    in-out property <string> settings-restart-policy: "on-crash";
+    in-out property <string> settings-restart-max-retries: "5";
+    in-out property <string> settings-restart-backoff-base: "5";
+    in-out property <string> settings-restart-backoff-max: "300";
+    in-out property <string> settings-restart-reset-after: "600";
+    in-out property <[string]> settings-java-items: ["java"];
+    in-out property <string> settings-java-custom: "";
+    in-out property <string> settings-error: "";
+    in-out property <string> settings-status: "";
+    in-out property <string> settings-scan-note: "";
+    in-out property <string> settings-scan-error: "";
+    in-out property <bool> settings-dirty: false;
+    in-out property <bool> settings-loading: false;
+
+    // --- confirm dialog (remove / discard) ---
+    in-out property <bool> confirm-open: false;
+    in-out property <string> confirm-title: "";
+    in-out property <string> confirm-text: "";
+    in-out property <string> confirm-action: "";
+    in-out property <string> confirm-id: "";
+
+    callback pick(int);
+    callback step(int);
+    callback control(string);
+    callback send-command(string);
+    callback copy-selection(int, int);
+    callback add-instance();
+    callback remove-instance(string);
+    callback settings-touched();
+    callback settings-save();
+    callback settings-revert();
+    callback settings-scan-workdir();
+    callback settings-tab-activated();
+    callback confirm-yes();
+    callback confirm-no();
+
+    pure function level-color(level: int) -> color {
+        return level == 1 ? Tok.warn : level == 2 ? Tok.err : level == 3 ? Tok.debug : Tok.fg;
+    }
+    pure function state-color(code: int) -> color {
+        return code == 0 ? Tok.online
+            : code == 1 || code == 2 ? Tok.warn
+            : code == 4 || code == 5 ? Tok.crashed
+            : Tok.offline;
+    }
+    pure function can-start(code: int) -> bool {
+        return code == 3 || code == 4 || code == 6;
+    }
+    pure function can-stop(code: int) -> bool {
+        return code == 0 || code == 1 || code == 2 || code == 5;
+    }
+    pure function row-at(y: length) -> int {
+        return root.lines.length == 0 ? -1
+            : clamp(floor((y - lv.content-y) / 1px / 22), 0, root.lines.length - 1);
+    }
+
+    fs := FocusScope {
+        key-pressed(event) => {
+            if (event.modifiers.control && event.text == "c") {
+                if (root.sel-lo >= 0 && root.sel-hi >= 0) {
+                    root.copy-selection(min(root.sel-lo, root.sel-hi), max(root.sel-lo, root.sel-hi));
+                    return accept;
+                }
+            }
+            if (event.text == Key.DownArrow) {
+                root.step(1);
+                return accept;
+            }
+            if (event.text == Key.UpArrow) {
+                root.step(-1);
+                return accept;
+            }
+            if (event.text == Key.PageUp) {
+                lv.content-y = clamp(lv.content-y + lv.visible-height, min(0px, lv.visible-height - lv.content-height), 0px);
+                root.stick = lv.content-y <= lv.visible-height - lv.content-height + 2px;
+                return accept;
+            }
+            if (event.text == Key.PageDown) {
+                lv.content-y = clamp(lv.content-y - lv.visible-height, min(0px, lv.visible-height - lv.content-height), 0px);
+                root.stick = lv.content-y <= lv.visible-height - lv.content-height + 2px;
+                return accept;
+            }
+            if (event.text == Key.End) {
+                root.stick = true;
+                return accept;
+            }
+            if (event.modifiers.control && event.text == "l") {
+                cmd-input.focus();
+                return accept;
+            }
+            if (event.text == Key.Escape) {
+                fs.focus();
+                return accept;
+            }
+            if (event.modifiers.control && event.text == "a") {
+                root.sel-lo = 0;
+                root.sel-hi = root.lines.length - 1;
+                return accept;
+            }
+            reject
+        }
+
+        VerticalLayout {
+            spacing: 0px;
+            HorizontalLayout {
+                spacing: 0px;
+                // ---- sidebar: instances ----
+                Rectangle {
+                    width: 240px;
+                    background: Tok.card;
+                    VerticalLayout {
+                        padding: 10px;
+                        spacing: 6px;
+                        Text {
+                            text: "INSTANCES";
+                            color: Tok.muted-fg;
+                            font-size: 8pt;
+                            height: 22px;
+                        }
+                        for inst[j] in root.instances: InstanceRow {
+                            id: inst.id;
+                            name: inst.name;
+                            state: inst.state;
+                            code: inst.code;
+                            selected: root.selected-id == inst.id;
+                            picked => { root.pick(j); }
+                        }
+                        Rectangle { vertical-stretch: 1; }
+                        TokBtn {
+                            label: "+ Add instance";
+                            clicked => { root.add-instance(); }
+                        }
+                        Rectangle { height: 1px; background: Tok.border; }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            height: 22px;
+                            Rectangle {
+                                width: 8px;
+                                height: 8px;
+                                border-radius: 4px;
+                                background: root.daemon-ok ? Tok.online : Tok.crashed;
+                            }
+                            Text {
+                                text: root.daemon-ok ? "daemon connected" : "daemon offline";
+                                color: Tok.muted-fg;
+                                font-size: 9pt;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+                // ---- main column ----
+                Rectangle {
+                console-col := VerticalLayout {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    spacing: 8px;
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    padding-top: 8px;
+                    // top bar: selected instance + controls
+                    HorizontalLayout {
+                        height: 40px;
+                        spacing: 8px;
+                        Rectangle { width: 2px; }
+                        VerticalLayout {
+                            spacing: 0px;
+                            alignment: center;
+                            Text {
+                                text: root.instance-name == "" ? "No instance selected" : root.instance-name;
+                                color: Tok.fg;
+                                font-size: 12pt;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: root.instance-name == "" ? "" : root.instance-state;
+                                color: root.state-color(root.instance-code);
+                                font-size: 8pt;
+                            }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        TokBtn {
+                            label: "Start";
+                            active: true;
+                            enabled: root.instance-name != "" && root.can-start(root.instance-code);
+                            clicked => { root.control("start"); }
+                        }
+                        TokBtn {
+                            label: "Stop";
+                            enabled: root.instance-name != "" && root.can-stop(root.instance-code);
+                            clicked => { root.control("stop"); }
+                        }
+                        TokBtn {
+                            label: "Remove";
+                            danger: true;
+                            enabled: root.instance-name != "";
+                            clicked => { root.remove-instance(root.selected-id); }
+                        }
+                    }
+                    // tabs: Console / Settings
+                    HorizontalLayout {
+                        height: 28px;
+                        spacing: 0px;
+                        TokBtn {
+                            label: "Console";
+                            active: root.settings-tab == 0;
+                            clicked => {
+                                root.settings-tab = 0;
+                            }
+                        }
+                        TokBtn {
+                            label: "Settings";
+                            active: root.settings-tab == 1;
+                            clicked => {
+                                root.settings-tab = 1;
+                                root.settings-tab-activated();
+                            }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    // ---- console panel: header/body/stdin as direct layout children (chunk-1 style) ----
+                    // console header
+                            HorizontalLayout {
+                                height: 24px;
+                                spacing: 8px;
+                                Rectangle { width: 2px; }
+                                Text {
+                                    text: "Console";
+                                    color: Tok.fg;
+                                    font-size: 11pt;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                Text {
+                                    text: root.ws-live ? "live" : "reconnecting…";
+                                    color: root.ws-live ? Tok.accent : Tok.warn;
+                                    font-size: 9pt;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            // console body
+                            Rectangle {
+                                vertical-stretch: 1;
+                                background: Tok.bg;
+                                border-radius: 6px;
+                                border-width: 1px;
+                                border-color: Tok.border;
+                                clip: true;
+
+                                lv := ListView {
+                                    x: 0;
+                                    y: 0;
+                                    width: parent.width;
+                                    height: parent.height;
+                                    for line[i] in root.lines: Rectangle {
+                                        height: 22px;
+                                        width: 100%;
+                                        background: (root.sel-hi >= 0 && i >= min(root.sel-lo, root.sel-hi) && i <= max(root.sel-lo, root.sel-hi)) ? Tok.selection : transparent;
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            spacing: 8px;
+                                            Text {
+                                                text: line.ts;
+                                                color: Tok.muted-fg;
+                                                font-size: 10pt;
+                                                width: 72px;
+                                                vertical-alignment: center;
+                                            }
+                                            Text {
+                                                text: "[" + line.tag + "]";
+                                                color: root.level-color(line.level);
+                                                font-size: 10pt;
+                                                width: 62px;
+                                                vertical-alignment: center;
+                                            }
+                                            Text {
+                                                text: line.msg;
+                                                color: root.level-color(line.level);
+                                                font-size: 10pt;
+                                                overflow: elide;
+                                                vertical-alignment: center;
+                                                horizontal-stretch: 1;
+                                            }
+                                        }
+                                    }
+                                    scrolled => {
+                                        root.stick = lv.content-y <= lv.visible-height - lv.content-height + 2px;
+                                    }
+                                }
+
+                                // selection overlay (leaves 14px for the scrollbar); captures wheel too
+                                TouchArea {
+                                    x: 0;
+                                    y: 0;
+                                    width: parent.width - 14px;
+                                    height: parent.height;
+                                    scroll-event(e) => {
+                                        lv.content-y = clamp(lv.content-y + e.delta-y, min(0px, lv.visible-height - lv.content-height), 0px);
+                                        root.stick = lv.content-y <= lv.visible-height - lv.content-height + 2px;
+                                        accept
+                                    }
+                                    pointer-event(e) => {
+                                        if (e.kind == PointerEventKind.down) {
+                                            fs.focus();
+                                            root.sel-lo = root.row-at(self.mouse-y);
+                                            root.sel-hi = root.sel-lo;
+                                        }
+                                    }
+                                    moved => {
+                                        if (self.pressed) {
+                                            root.sel-hi = root.row-at(self.mouse-y);
+                                        }
+                                    }
+                                }
+                                TokBtn {
+                                    x: parent.width - self.width - 22px;
+                                    y: parent.height - self.height - 10px;
+                                    label: "Jump to latest";
+                                    active: true;
+                                    visible: !root.stick;
+                                    clicked => { root.stick = true; }
+                                }
+                            }
+                            // command input
+                            Rectangle {
+                                height: 40px;
+                                background: Tok.card;
+                                border-radius: 6px;
+                                HorizontalLayout {
+                                    padding: 6px;
+                                    spacing: 8px;
+                                    cmd-input := LineEdit {
+                                        text <=> root.cmd-text;
+                                        placeholder-text: "server command (stdin)";
+                                        font-family: "Noto Sans";
+                                        font-size: 10pt;
+                                        accepted => {
+                                            root.send-command(root.cmd-text);
+                                            root.cmd-text = "";
+                                        }
+                                    }
+                                    TokBtn {
+                                        label: "Send";
+                                        width: 72px;
+                                        enabled: root.cmd-text != "" && root.instance-name != "";
+                                        clicked => {
+                                            root.send-command(root.cmd-text);
+                                            root.cmd-text = "";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    // ---- settings overlay ----
+                    // Starts BELOW the top bar + tab row so those stay
+                    // visible and clickable while Settings is open
+                    // (92px = 8 padding + 40 top bar + 8 spacing + 28 tabs
+                    // + 8 spacing, mirroring console-col's layout).
+                    Rectangle {
+                        visible: root.settings-tab == 1;
+                        x: 0;
+                        y: 92px;
+                        width: parent.width;
+                        height: parent.height - 92px;
+                        background: Tok.bg;
+                        ScrollView {
+                            x: 0;
+                            y: 0;
+                            width: parent.width;
+                            height: parent.height;
+                            VerticalLayout {
+                                spacing: 12px;
+                                padding: 10px;
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: "Settings";
+                                        color: Tok.fg;
+                                        font-size: 12pt;
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Text {
+                                        text: root.settings-dirty ? "Unsaved changes" : "Saved";
+                                        color: root.settings-dirty ? Tok.warn : Tok.muted-fg;
+                                        font-size: 9pt;
+                                        vertical-alignment: center;
+                                    }
+                                    Text { visible: root.settings-loading; text: "Loading…"; color: Tok.muted-fg; font-size: 9pt; vertical-alignment: center; }
+                                }
+
+                                // ---- Instance group ----
+                                Rectangle {
+                                    background: Tok.card;
+                                    border-radius: 6px;
+                                    border-width: 1px;
+                                    border-color: Tok.border;
+                                    VerticalLayout {
+                                        spacing: 8px;
+                                        padding: 10px;
+                                        Text { text: "Instance"; color: Tok.muted-fg; font-size: 9pt; }
+
+                                        Text { text: "Display name"; color: Tok.muted-fg; font-size: 9pt; }
+                                        LineEdit {
+                                            text <=> root.settings-name;
+                                            font-size: 10pt;
+                                            edited => { root.settings-touched(); }
+                                            accepted => { root.settings-save(); }
+                                        }
+
+                                        Text { text: "Work dir"; color: Tok.muted-fg; font-size: 9pt; }
+                                        HorizontalLayout { spacing: 8px;
+                                            LineEdit {
+                                                text <=> root.settings-work-dir;
+                                                placeholder-text: "/srv/minecraft/survival";
+                                                font-family: "Noto Sans Mono";
+                                                font-size: 10pt;
+                                                horizontal-stretch: 1;
+                                                edited => { root.settings-touched(); }
+                                                accepted => { root.settings-save(); }
+                                            }
+                                            Btn2 {
+                                                label: "Validate";
+                                                enabled: root.settings-work-dir != "";
+                                                clicked => { root.settings-scan-workdir(); }
+                                            }
+                                        }
+                                        Text { visible: root.settings-scan-note != ""; text: root.settings-scan-note; color: Tok.muted-fg; font-size: 9pt; }
+                                        ErrorText { visible: root.settings-scan-error != ""; content: root.settings-scan-error; }
+
+                                        Text { text: "Java runtime"; color: Tok.muted-fg; font-size: 9pt; }
+                                        ComboBox {
+                                            model: root.settings-java-items;
+                                            current-value <=> root.settings-java;
+                                            selected => { root.settings-touched(); }
+                                            horizontal-stretch: 1;
+                                        }
+                                        HorizontalLayout { visible: root.settings-java == "Custom path…";
+                                            Text { text: "Custom java path"; color: Tok.muted-fg; font-size: 9pt; width: 120px; }
+                                            LineEdit {
+                                                text <=> root.settings-java-custom;
+                                                placeholder-text: "/path/to/bin/java";
+                                                font-family: "Noto Sans Mono";
+                                                font-size: 10pt;
+                                                horizontal-stretch: 1;
+                                                edited => {
+                                                    root.settings-java = root.settings-java-custom;
+                                                    root.settings-touched();
+                                                }
+                                                accepted => { root.settings-save(); }
+                                            }
+                                        }
+
+                                        HorizontalLayout { spacing: 8px;
+                                            Text { text: "Min RAM (MiB)"; color: Tok.muted-fg; font-size: 9pt; width: 120px; }
+                                            LineEdit {
+                                                text <=> root.settings-min-ram;
+                                                placeholder-text: "256";
+                                                font-size: 10pt;
+                                                width: 120px;
+                                                edited => { root.settings-touched(); }
+                                                accepted => { root.settings-save(); }
+                                            }
+                                        }
+                                        HorizontalLayout { spacing: 8px;
+                                            Text { text: "Max RAM (MiB)"; color: Tok.muted-fg; font-size: 9pt; width: 120px; }
+                                            LineEdit {
+                                                text <=> root.settings-max-ram;
+                                                placeholder-text: "512";
+                                                font-size: 10pt;
+                                                width: 120px;
+                                                edited => { root.settings-touched(); }
+                                                accepted => { root.settings-save(); }
+                                            }
+                                        }
+                                        HorizontalLayout { spacing: 8px;
+                                            Text { text: "Preset"; color: Tok.muted-fg; font-size: 9pt; width: 120px; }
+                                            ComboBox {
+                                                model: ["none", "aikar", "custom"];
+                                                current-value <=> root.settings-preset;
+                                                selected => { root.settings-touched(); }
+                                                horizontal-stretch: 1;
+                                            }
+                                        }
+                                        Text { visible: root.settings-preset == "custom"; text: "Extra JVM args (one per line)"; color: Tok.muted-fg; font-size: 9pt; width: 220px; }
+                                        TextEdit { visible: root.settings-preset == "custom";
+                                            text <=> root.settings-jvm-extra;
+                                            font-family: "Noto Sans Mono";
+                                            font-size: 10pt;
+                                            height: 90px;
+                                            edited => { root.settings-touched(); }
+                                        }
+                                        Text {
+                                            text: "Final: -Xms" + root.settings-min-ram + " -Xmx"
+                                                + root.settings-max-ram
+                                                + (root.settings-preset == "aikar" ? " (Aikar's flags)" : "");
+                                            color: Tok.muted-fg;
+                                            font-size: 9pt;
+                                        }
+                                        HorizontalLayout { spacing: 8px;
+                                            Text { text: "Launch mode"; color: Tok.muted-fg; font-size: 9pt; width: 120px; }
+                                            ComboBox {
+                                                model: ["jar", "args-file", "custom"];
+                                                current-value <=> root.settings-launch-mode;
+                                                selected => { root.settings-touched(); }
+                                                horizontal-stretch: 1;
+                                            }
+                                        }
+                                        Text { text: "Launch args"; color: Tok.muted-fg; font-size: 9pt; }
+                                        LineEdit {
+                                            text <=> root.settings-launch-args;
+                                            placeholder-text: "-jar server.jar nogui";
+                                            font-family: "Noto Sans Mono";
+                                            font-size: 10pt;
+                                            edited => { root.settings-touched(); }
+                                            accepted => { root.settings-save(); }
+                                        }
+                                        CheckBox {
+                                            checked <=> root.settings-autostart;
+                                            text: "Auto-start";
+                                            toggled => { root.settings-touched(); }
+                                        }
+                                    }
+                                }
+
+                                // ---- Probe group ----
+                                Rectangle {
+                                    background: Tok.card;
+                                    border-radius: 6px;
+                                    border-width: 1px;
+                                    border-color: Tok.border;
+                                    VerticalLayout {
+                                        spacing: 8px;
+                                        padding: 10px;
+                                        Text { text: "Probe"; color: Tok.muted-fg; font-size: 9pt; }
+                                        Text { text: "Host"; color: Tok.muted-fg; font-size: 9pt; }
+                                        LineEdit {
+                                            text <=> root.settings-probe-host;
+                                            placeholder-text: "127.0.0.1";
+                                            font-family: "Noto Sans Mono";
+                                            font-size: 10pt;
+                                            edited => { root.settings-touched(); }
+                                            accepted => { root.settings-save(); }
+                                        }
+                                        Text { text: "Port"; color: Tok.muted-fg; font-size: 9pt; }
+                                        LineEdit {
+                                            text <=> root.settings-probe-port;
+                                            placeholder-text: "25565";
+                                            font-size: 10pt;
+                                            width: 120px;
+                                            edited => { root.settings-touched(); }
+                                            accepted => { root.settings-save(); }
+                                        }
+                                        Text { text: "Timeout (s)"; color: Tok.muted-fg; font-size: 9pt; }
+                                        LineEdit {
+                                            text <=> root.settings-probe-timeout;
+                                            placeholder-text: "3";
+                                            font-size: 10pt;
+                                            width: 120px;
+                                            edited => { root.settings-touched(); }
+                                            accepted => { root.settings-save(); }
+                                        }
+                                        CheckBox {
+                                            checked <=> root.settings-probe-query;
+                                            text: "Query enabled";
+                                            toggled => { root.settings-touched(); }
+                                        }
+                                    }
+                                }
+
+                                // ---- Restart group ----
+                                Rectangle {
+                                    background: Tok.card;
+                                    border-radius: 6px;
+                                    border-width: 1px;
+                                    border-color: Tok.border;
+                                    VerticalLayout {
+                                        spacing: 8px;
+                                        padding: 10px;
+                                        Text { text: "Restart"; color: Tok.muted-fg; font-size: 9pt; }
+                                        Text { text: "Policy"; color: Tok.muted-fg; font-size: 9pt; }
+                                        ComboBox {
+                                            model: ["never", "on-crash"];
+                                            current-value <=> root.settings-restart-policy;
+                                            selected => { root.settings-touched(); }
+                                            horizontal-stretch: 1;
+                                        }
+                                        Text { text: "Max retries"; color: Tok.muted-fg; font-size: 9pt; }
+                                        LineEdit {
+                                            text <=> root.settings-restart-max-retries;
+                                            placeholder-text: "5";
+                                            font-size: 10pt;
+                                            width: 120px;
+                                            edited => { root.settings-touched(); }
+                                            accepted => { root.settings-save(); }
+                                        }
+                                        Text { text: "Backoff base (s)"; color: Tok.muted-fg; font-size: 9pt; }
+                                        LineEdit {
+                                            text <=> root.settings-restart-backoff-base;
+                                            placeholder-text: "5";
+                                            font-size: 10pt;
+                                            width: 120px;
+                                            edited => { root.settings-touched(); }
+                                            accepted => { root.settings-save(); }
+                                        }
+                                        Text { text: "Backoff max (s)"; color: Tok.muted-fg; font-size: 9pt; }
+                                        LineEdit {
+                                            text <=> root.settings-restart-backoff-max;
+                                            placeholder-text: "300";
+                                            font-size: 10pt;
+                                            width: 120px;
+                                            edited => { root.settings-touched(); }
+                                            accepted => { root.settings-save(); }
+                                        }
+                                        Text { text: "Reset after online (s)"; color: Tok.muted-fg; font-size: 9pt; }
+                                        LineEdit {
+                                            text <=> root.settings-restart-reset-after;
+                                            placeholder-text: "600";
+                                            font-size: 10pt;
+                                            width: 120px;
+                                            edited => { root.settings-touched(); }
+                                            accepted => { root.settings-save(); }
+                                        }
+                                    }
+                                }
+
+                                ErrorText { visible: root.settings-error != ""; content: root.settings-error; }
+                                HorizontalLayout { spacing: 8px;
+                                    Btn2 {
+                                        label: "Save";
+                                        primary: true;
+                                        enabled: root.settings-dirty && !root.settings-loading;
+                                        clicked => { root.settings-save(); }
+                                    }
+                                    Btn2 {
+                                        label: "Revert";
+                                        enabled: root.settings-dirty && !root.settings-loading;
+                                        clicked => { root.settings-revert(); }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Text {
+                                        text: root.settings-status;
+                                        color: Tok.muted-fg;
+                                        font-size: 9pt;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // ---- status bar ----
+            Rectangle {
+                height: 26px;
+                background: Tok.card;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 18px;
+                        spacing: 12px;
+                        Rectangle {
+                            width: 8px; height: 8px; border-radius: 4px;
+                            background: root.daemon-ok ? Tok.online : Tok.crashed;
+                        }
+                        Text {
+                            text: root.daemon-info;
+                            color: Tok.muted-fg;
+                            font-size: 9pt;
+                            vertical-alignment: center;
+                        }
+                        Rectangle { width: 1px; height: 14px; background: Tok.border; }
+                        Text {
+                            text: root.ws-live ? "console: connected" : "console: reconnecting";
+                            color: root.ws-live ? Tok.muted-fg : Tok.warn;
+                            font-size: 9pt;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: root.status;
+                            color: Tok.muted-fg;
+                            font-size: 9pt;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: "ring " + root.lines.length + "/1000";
+                            color: Tok.muted-fg;
+                            font-size: 9pt;
+                            vertical-alignment: center;
+                        }
+                    }
+            }
+        }
+    }
+
+    // ---- confirm dialog (modal overlay) ----
+    Rectangle {
+        visible: root.confirm-open;
+        width: parent.width;
+        height: parent.height;
+        background: #000000aa;
+        TouchArea { clicked => {} }
+        Rectangle {
+            x: parent.width / 2 - 210px;
+            y: parent.height / 2 - 100px;
+            width: 420px;
+            height: 200px;
+            background: Tok.card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Tok.border;
+            VerticalLayout {
+                padding: 18px;
+                spacing: 12px;
+                alignment: center;
+                Text {
+                    text: root.confirm-title;
+                    color: Tok.fg;
+                    font-size: 11pt;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: root.confirm-text;
+                    color: Tok.muted-fg;
+                    font-size: 9pt;
+                    horizontal-alignment: center;
+                }
+                HorizontalLayout { spacing: 8px; alignment: center;
+                    TokBtn {
+                        label: "No";
+                        clicked => { root.confirm-no(); }
+                    }
+                    TokBtn {
+                        label: "Yes";
+                        danger: root.confirm-action == "remove";
+                        clicked => { root.confirm-yes(); }
+                    }
+                }
+            }
+        }
+    }
+
+    Timer {
+        interval: 50ms;
+        running: true;
+        triggered => {
+            if (root.stick && lv.content-height > lv.visible-height) {
+                lv.content-y = lv.visible-height - lv.content-height;
+            }
+        }
+    }
+    // `init` runs before the Wayland surface is mapped; without this
+    // deferred focus the window receives keys but no element owns focus,
+    // so Ctrl+C/Ctrl+L would be dead until the first mouse click.
+    focus-timer := Timer {
+        interval: 300ms;
+        running: true;
+        triggered => {
+            fs.focus();
+            self.running = false;
+        }
+    }
+    init => {
+        fs.focus();
+    }
+}
+
+// Add-instance wizard dialog (P1 chunk 2). Four steps: identity → Java →
+// RAM/preset → launch mode/args/review. Owns its fields as properties so
+// the Rust side can reset them on open and read them on submit.
+component BtnWiz inherits Rectangle {
+    in property <string> label: "";
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 32px;
+    width: max(88px, txt.preferred-width + 24px);
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: !root.enabled ? #475569 : (root.primary ? #22c55e : #475569);
+    background: (!root.enabled || root.primary) ? #1f2940 : #1b2336;
+    ta := TouchArea {
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
+    }
+    txt := Text {
+        text: root.label;
+        color: !root.enabled ? #94a3b8 : (root.primary ? #ffffff : #f8fafc);
+        font-size: 10pt;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component ErrorTextWiz inherits Text {
+    in property <string> content: "";
+    text: root.content;
+    color: #ef4444;
+    font-size: 9pt;
+    overflow: elide;
+}
+
+export component WizardWindow inherits Window {
+    title: "Add instance — Minewrap";
+    min-width: 720px;
+    min-height: 660px;
+    background: #0f172a;
+    default-font-family: "Noto Sans";
+    default-font-size: 10pt;
+
+    in-out property <string> wiz-id: "";
+    in-out property <string> wiz-name: "";
+    in-out property <string> wiz-work-dir: "";
+    in-out property <string> wiz-java: "java";
+    in-out property <string> wiz-min-ram: "256";
+    in-out property <string> wiz-max-ram: "512";
+    in-out property <string> wiz-preset: "none";
+    in-out property <string> wiz-launch-mode: "jar";
+    in-out property <string> wiz-launch-args: "";
+    in-out property <bool> wiz-autostart: false;
+    in-out property <[string]> wiz-java-items: ["java"];
+    in-out property <string> wiz-java-custom: "";
+    in-out property <string> wiz-error: "";
+    in-out property <string> wiz-scan-note: "";
+    in-out property <int> wiz-step: 1;
+    in-out property <bool> wiz-busy: false;
+
+    callback cancel;
+    callback submit;
+    callback scan-workdir;
+    callback detect-java;
+
+    property <color> muted-fg: #94a3b8;
+    property <color> err: #ef4444;
+
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.cancel();
+                return accept;
+            }
+            return reject;
+        }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            Text {
+                text: "Add instance";
+                font-size: 13pt;
+                color: #f8fafc;
+            }
+            Text {
+                text: "step " + root.wiz-step + "/4";
+                color: root.muted-fg;
+                font-size: 9pt;
+            }
+
+                        // ---- step 1: identity ----
+            VerticalLayout { visible: root.wiz-step == 1; spacing: 8px;
+                Text { text: "ID"; color: root.muted-fg; font-size: 9pt; }
+                LineEdit {
+                    text <=> root.wiz-id;
+                    placeholder-text: "survival";
+                    font-family: "Noto Sans Mono";
+                    font-size: 10pt;
+                    accepted => { root.submit(); }
+                }
+                Text { text: "Display name (optional)"; color: root.muted-fg; font-size: 9pt; }
+                LineEdit {
+                    text <=> root.wiz-name;
+                    placeholder-text: "Survival";
+                    font-size: 10pt;
+                    accepted => { root.submit(); }
+                }
+                Text { text: "Work dir"; color: root.muted-fg; font-size: 9pt; }
+                HorizontalLayout { spacing: 8px;
+                    LineEdit {
+                        text <=> root.wiz-work-dir;
+                        placeholder-text: "/srv/minecraft/survival";
+                        font-family: "Noto Sans Mono";
+                        font-size: 10pt;
+                        horizontal-stretch: 1;
+                        accepted => { root.submit(); }
+                    }
+                    BtnWiz {
+                        label: "Scan";
+                        enabled: root.wiz-work-dir != "" && !root.wiz-busy;
+                        clicked => { root.scan-workdir(); }
+                    }
+                }
+                Text { visible: root.wiz-scan-note != ""; text: root.wiz-scan-note; color: root.muted-fg; font-size: 9pt; }
+                ErrorTextWiz { visible: root.wiz-error != ""; content: root.wiz-error; }
+            }
+
+            // ---- step 2: Java ----
+            VerticalLayout { visible: root.wiz-step == 2; spacing: 8px;
+                Text { text: "Java runtime"; color: root.muted-fg; font-size: 9pt; }
+                ComboBox {
+                    model: root.wiz-java-items;
+                    current-value <=> root.wiz-java;
+                    horizontal-stretch: 1;
+                }
+                BtnWiz {
+                    label: "Rescan";
+                    enabled: !root.wiz-busy;
+                    clicked => { root.detect-java(); }
+                }
+                HorizontalLayout { visible: root.wiz-java == "Custom path…";
+                    LineEdit {
+                        text <=> root.wiz-java-custom;
+                        placeholder-text: "/path/to/bin/java";
+                        font-family: "Noto Sans Mono";
+                        font-size: 10pt;
+                        horizontal-stretch: 1;
+                        edited => { root.wiz-java = root.wiz-java-custom; }
+                        accepted => { root.submit(); }
+                    }
+                }
+                ErrorTextWiz { visible: root.wiz-error != ""; content: root.wiz-error; }
+            }
+
+            // ---- step 3: RAM + preset ----
+            VerticalLayout { visible: root.wiz-step == 3; spacing: 8px;
+                HorizontalLayout { spacing: 8px;
+                    Text { text: "Min RAM (MiB)"; color: root.muted-fg; font-size: 9pt; width: 120px; }
+                    LineEdit {
+                        text <=> root.wiz-min-ram;
+                        placeholder-text: "256";
+                        font-size: 10pt;
+                        width: 120px;
+                        accepted => { root.submit(); }
+                    }
+                }
+                HorizontalLayout { spacing: 8px;
+                    Text { text: "Max RAM (MiB)"; color: root.muted-fg; font-size: 9pt; width: 120px; }
+                    LineEdit {
+                        text <=> root.wiz-max-ram;
+                        placeholder-text: "512";
+                        font-size: 10pt;
+                        width: 120px;
+                        accepted => { root.submit(); }
+                    }
+                }
+                HorizontalLayout { spacing: 8px;
+                    Text { text: "Preset"; color: root.muted-fg; font-size: 9pt; width: 120px; }
+                    ComboBox {
+                        model: ["none", "aikar", "custom"];
+                        current-value <=> root.wiz-preset;
+                        horizontal-stretch: 1;
+                    }
+                }
+                ErrorTextWiz { visible: root.wiz-error != ""; content: root.wiz-error; }
+            }
+
+            // ---- step 4: launch mode / args / review ----
+            VerticalLayout { visible: root.wiz-step == 4; spacing: 8px;
+                HorizontalLayout { spacing: 8px;
+                    Text { text: "Launch mode"; color: root.muted-fg; font-size: 9pt; width: 120px; }
+                    ComboBox {
+                        model: ["jar", "args-file", "custom"];
+                        current-value <=> root.wiz-launch-mode;
+                        horizontal-stretch: 1;
+                    }
+                }
+                Text { text: "Launch args"; color: root.muted-fg; font-size: 9pt; }
+                LineEdit {
+                    text <=> root.wiz-launch-args;
+                    placeholder-text: "-jar server.jar nogui";
+                    font-family: "Noto Sans Mono";
+                    font-size: 10pt;
+                    accepted => { root.submit(); }
+                }
+                CheckBox {
+                    checked <=> root.wiz-autostart;
+                    text: "Auto-start";
+                }
+                Text {
+                    text: "Final: -Xms" + root.wiz-min-ram + " -Xmx" + root.wiz-max-ram
+                        + (root.wiz-preset == "aikar" ? " (Aikar's flags)" : "");
+                    color: root.muted-fg;
+                    font-size: 9pt;
+                }
+                ErrorTextWiz { visible: root.wiz-error != ""; content: root.wiz-error; }
+            }
+
+// ---- actions ----
+            HorizontalLayout { spacing: 8px;
+                BtnWiz {
+                    label: "Back";
+                    primary: false;
+                    enabled: root.wiz-step > 1 && !root.wiz-busy;
+                    clicked => { root.wiz-step = root.wiz-step - 1; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                BtnWiz {
+                    label: "Cancel";
+                    primary: false;
+                    clicked => { root.cancel(); }
+                }
+                BtnWiz {
+                    label: (root.wiz-step == 4 ? "Add instance" : "Next");
+                    primary: true;
+                    enabled: !root.wiz-busy;
+                    clicked => {
+                        if (root.wiz-step == 4) {
+                            root.submit();
+                        } else {
+                            root.wiz-step = root.wiz-step + 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

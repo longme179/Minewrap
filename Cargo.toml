@@ -1,10 +1,16 @@
 [workspace]
 resolver = "2"
-members = ["crates/minewrap-core", "crates/minewrapd", "crates/minewrap-remote", "src-tauri"]
+members = [
+    "crates/minewrap-core",
+    "crates/minewrapd",
+    "crates/minewrap-remote",
+    "crates/minewrap-gui",
+    "src-tauri",
+]
 exclude = []
 
 [workspace.package]
-version = "1.9.3"
+version = "1.10.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 

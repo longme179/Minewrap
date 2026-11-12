@@ -26,8 +26,7 @@ pub fn valid_instance_id(id: &str) -> bool {
         return false;
     }
     if bytes.len() > 1
-        && !(bytes[bytes.len() - 1].is_ascii_lowercase()
-            || bytes[bytes.len() - 1].is_ascii_digit())
+        && !(bytes[bytes.len() - 1].is_ascii_lowercase() || bytes[bytes.len() - 1].is_ascii_digit())
     {
         return false;
     }
@@ -391,7 +390,10 @@ impl Default for DiscordConfig {
 impl DiscordConfig {
     /// Webhook never appears in `Display`/debug.
     pub fn webhook_set(&self) -> bool {
-        self.webhook_url.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
+        self.webhook_url
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -446,7 +448,11 @@ fn default_java() -> String {
     "java".to_string()
 }
 fn default_launch_args() -> Vec<String> {
-    vec!["-jar".to_string(), "server.jar".to_string(), "nogui".to_string()]
+    vec![
+        "-jar".to_string(),
+        "server.jar".to_string(),
+        "nogui".to_string(),
+    ]
 }
 
 /// Aikar's Flags (https://aikar.co/flags.html) — the recommended
@@ -587,10 +593,7 @@ impl DaemonConfig {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(
-                &tmp,
-                std::fs::Permissions::from_mode(0o600),
-            );
+            let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
         }
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
         Ok(())
@@ -631,11 +634,7 @@ impl DaemonConfig {
 
     /// Patch one instance (masked writes; `webhook_url` is write-only),
     /// persist + validate. Callers get 422-safe errors here.
-    pub fn patch_instance(
-        &mut self,
-        id: &str,
-        patch: serde_json::Value,
-    ) -> Result<(), String> {
+    pub fn patch_instance(&mut self, id: &str, patch: serde_json::Value) -> Result<(), String> {
         let inst = self
             .instances
             .iter_mut()
@@ -691,9 +690,16 @@ impl DaemonConfig {
                 match k.as_str() {
                     "policy" => inst.restart.policy = v.as_str().unwrap_or("").to_string(),
                     "max_retries" => inst.restart.max_retries = v.as_u64().unwrap_or(5) as u32,
-                    "backoff_base_seconds" => inst.restart.backoff_base_seconds = v.as_f64().unwrap_or(5.0).max(0.1),
-                    "backoff_max_seconds" => inst.restart.backoff_max_seconds = v.as_f64().unwrap_or(300.0).max(0.1),
-                    "reset_after_online_seconds" => inst.restart.reset_after_online_seconds = v.as_f64().unwrap_or(600.0).max(0.1),
+                    "backoff_base_seconds" => {
+                        inst.restart.backoff_base_seconds = v.as_f64().unwrap_or(5.0).max(0.1)
+                    }
+                    "backoff_max_seconds" => {
+                        inst.restart.backoff_max_seconds = v.as_f64().unwrap_or(300.0).max(0.1)
+                    }
+                    "reset_after_online_seconds" => {
+                        inst.restart.reset_after_online_seconds =
+                            v.as_f64().unwrap_or(600.0).max(0.1)
+                    }
                     _ => {}
                 }
             }
@@ -710,12 +716,23 @@ impl DaemonConfig {
                         }
                     }
                     "mode" => inst.discord.mode = v.as_str().unwrap_or("").to_string(),
-                    "interval_seconds" => inst.discord.interval_seconds = v.as_f64().unwrap_or(600.0).max(0.1),
-                    "first_push_delay_seconds" => inst.discord.first_push_delay_seconds = v.as_f64().unwrap_or(10.0).max(0.0),
+                    "interval_seconds" => {
+                        inst.discord.interval_seconds = v.as_f64().unwrap_or(600.0).max(0.1)
+                    }
+                    "first_push_delay_seconds" => {
+                        inst.discord.first_push_delay_seconds = v.as_f64().unwrap_or(10.0).max(0.0)
+                    }
                     "log_lines" => inst.discord.log_lines = v.as_u64().unwrap_or(15) as usize,
-                    "max_log_chars" => inst.discord.max_log_chars = v.as_u64().unwrap_or(1500) as usize,
-                    "state_change_posts" => inst.discord.state_change_posts = v.as_bool().unwrap_or(true),
-                    "state_change_debounce_seconds" => inst.discord.state_change_debounce_seconds = v.as_f64().unwrap_or(30.0).max(0.0),
+                    "max_log_chars" => {
+                        inst.discord.max_log_chars = v.as_u64().unwrap_or(1500) as usize
+                    }
+                    "state_change_posts" => {
+                        inst.discord.state_change_posts = v.as_bool().unwrap_or(true)
+                    }
+                    "state_change_debounce_seconds" => {
+                        inst.discord.state_change_debounce_seconds =
+                            v.as_f64().unwrap_or(30.0).max(0.0)
+                    }
                     "redact_regexes" => {
                         if let Some(arr) = v.as_array() {
                             inst.discord.redact_regexes = arr
@@ -863,7 +880,9 @@ interval_seconds = 0.05
             std::path::Path::new(&cfg.daemon.data_dir)
                 .components()
                 .collect::<Vec<_>>(),
-            std::path::Path::new("/tmp/cfg/data").components().collect::<Vec<_>>()
+            std::path::Path::new("/tmp/cfg/data")
+                .components()
+                .collect::<Vec<_>>()
         );
         assert_eq!(cfg.instances[0].work_dir, "/tmp/cfg/server");
     }

@@ -76,7 +76,10 @@ pub fn toggle_mod(instance_dir: &Path, name: &str) -> Result<bool, String> {
         return Err(format!("not a mod jar: {name}"));
     };
     std::fs::rename(&current, &to).map_err(|e| e.to_string())?;
-    Ok(to.file_name().map(|n| !n.to_string_lossy().ends_with(".jar.disabled")).unwrap_or(false))
+    Ok(to
+        .file_name()
+        .map(|n| !n.to_string_lossy().ends_with(".jar.disabled"))
+        .unwrap_or(false))
 }
 
 /// Human-readable size (kB/MB).

@@ -37,6 +37,16 @@
     }
   }
 
+  async function retry(id: string) {
+    error = "";
+    try {
+      await ipc.retryNode?.(id);
+      await load();
+    } catch (e) {
+      error = formatError(e);
+    }
+  }
+
   async function remove(id: string) {
     try {
       await ipc.removeNode(id);
@@ -78,10 +88,13 @@
             </span>
           </td>
           <td>
+            {#if n.state !== "connected"}
+              <button type="button" class="btn-secondary" onclick={() => retry(n.id)}>Retry</button>
+            {/if}
             {#if !n.is_local}
               <button type="button" class="btn-secondary" onclick={() => remove(n.id)}>Remove</button>
             {:else}
-              <span class="hint">embedded</span>
+              <span class="hint">daemon</span>
             {/if}
           </td>
         </tr>
