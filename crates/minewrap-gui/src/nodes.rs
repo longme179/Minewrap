@@ -9,7 +9,7 @@
 //! never logged and never echoed back by the UI after entry.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use minewrap_remote::types::{
@@ -43,6 +43,11 @@ pub struct NodeService {
     /// The `minewrap.toml` the GUI loaded (host/port/data_dir source).
     pub config_path: String,
     pub local: LocalSettings,
+    /// Where `nodes.json` lives — resolved ONCE at load so the process
+    /// env is never re-read (and tests can point it at a scratch path
+    /// without mutating the global `XDG_CONFIG_HOME`, which races under
+    /// the default parallel test runner).
+    nodes_path: PathBuf,
 }
 
 /// One node + its instances, as shipped from the runtime poll to the UI.
@@ -69,32 +74,39 @@ impl NodeService {
     /// `Connecting`; `main.rs` spawns the daemon and the health poll
     /// flips the state from `/health` probes.
     pub fn load(config_path: &str) -> Result<Self, MinewrapError> {
+        let nodes_path = nodes_json_path();
+        Self::load_at(config_path, nodes_path)
+    }
+
+    /// Same as [`load`] but with an explicit registry path (test seam:
+    /// keeps tests off the process-global XDG env).
+    fn load_at(config_path: &str, nodes_path: PathBuf) -> Result<Self, MinewrapError> {
         let local = load_local_settings(config_path)
             .map_err(|e| MinewrapError::invalid(format!("config: {e}")))?;
+        std::fs::create_dir_all(&nodes_path.parent().unwrap_or(Path::new("."))).ok();
         let svc = Self {
             inner: Mutex::new(Inner {
                 nodes: HashMap::new(),
             }),
             config_path: config_path.to_string(),
             local,
+            nodes_path,
         };
         svc.upsert_local(NodeState::Connecting);
-        for record in Self::load_records() {
+        for record in Self::load_records(&svc.nodes_path) {
             svc.upsert_record(record, NodeState::Connecting);
         }
         Ok(svc)
     }
 
-    fn load_records() -> Vec<NodeRecord> {
-        let path = nodes_json_path();
-        let Ok(text) = std::fs::read_to_string(&path) else {
+    fn load_records(path: &Path) -> Vec<NodeRecord> {
+        let Ok(text) = std::fs::read_to_string(path) else {
             return Vec::new();
         };
         serde_json::from_str(&text).unwrap_or_default()
     }
 
-    fn save_records(records: &[NodeRecord]) {
-        let path = nodes_json_path();
+    fn save_records(path: &Path, records: &[NodeRecord]) {
         let data = serde_json::to_string_pretty(records).unwrap_or_else(|_| "[]".into());
         let tmp = path.with_extension("json.tmp");
         if std::fs::write(&tmp, &data).is_ok() {
@@ -251,7 +263,7 @@ impl NodeService {
             let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             Self::records_locked(&inner)
         };
-        Self::save_records(&records);
+        Self::save_records(&self.nodes_path, &records);
         let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner
             .nodes
@@ -276,7 +288,7 @@ impl NodeService {
                 let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
                 Self::records_locked(&inner)
             };
-            Self::save_records(&records);
+            Self::save_records(&self.nodes_path, &records);
         }
         Ok(removed)
     }
@@ -529,13 +541,19 @@ mod tests {
 
     #[test]
     fn records_round_trip_keeps_0600() {
-        let dir = std::env::temp_dir().join("minewrap-nodes-test-roundtrip");
+        // Own scratch dir + explicit registry path: NEVER touch the
+        // process-global XDG env (parallel tests race on set_var — that
+        // race is exactly what this suite's flake was).
+        let dir = std::env::temp_dir().join(format!(
+            "minewrap-nodes-test-roundtrip-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
+        let registry = dir.join("minewrap").join("nodes.json");
         let _config = test_config(&dir);
 
-        let svc = NodeService::load(&test_config(&dir)).unwrap();
+        let svc = NodeService::load_at(&test_config(&dir), registry.clone()).unwrap();
         let summary = svc
             .add_remote_node(
                 "Home".to_string(),
@@ -547,7 +565,7 @@ mod tests {
         assert!(!summary.is_local);
 
         // Persisted file parses back and is 0600.
-        let path = nodes_json_path();
+        let path = registry.clone();
         let text = std::fs::read_to_string(&path).unwrap();
         let records: Vec<NodeRecord> = serde_json::from_str(&text).unwrap();
         assert_eq!(records.len(), 1);
@@ -581,12 +599,15 @@ mod tests {
 
     #[test]
     fn client_of_remote_and_local() {
-        let dir = std::env::temp_dir().join("minewrap-nodes-test-client");
+        let dir = std::env::temp_dir().join(format!(
+            "minewrap-nodes-test-client-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
         let config = test_config(&dir);
-        let svc = NodeService::load(&config).unwrap();
+        let registry = dir.join("minewrap").join("nodes.json");
+        let svc = NodeService::load_at(&config, registry).unwrap();
 
         let summary = svc
             .add_remote_node("R".to_string(), "http://127.0.0.1:8391".to_string(), "tok".to_string())
