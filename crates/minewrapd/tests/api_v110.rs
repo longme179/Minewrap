@@ -315,3 +315,63 @@ async fn crud_java_scan_and_events_log_batch() {
     let _ = ws.close(None).await;
     let _ = std::fs::remove_dir_all(&d.dir);
 }
+
+#[tokio::test]
+async fn config_rename_shows_immediately_without_restart() {
+    // BUG-D1: PUT /config changing `name` must be visible in
+    // GET /instances and GET /instances/{id} at once — `summary_of`/
+    // `snapshot_of` read the stale `InstanceState.name` cache otherwise.
+    let d = start_daemon(vec![instance("srv", "AUTO", "AUTO")]).await;
+    let client = reqwest::Client::new();
+    let auth = d.auth();
+
+    let list: serde_json::Value = client
+        .get(format!("{}/api/v1/instances", d.base()))
+        .header("Authorization", &auth)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(list[0]["id"], "srv");
+    assert_eq!(list[0]["name"], "srv"); // name falls back to id
+
+    let r = client
+        .put(format!("{}/api/v1/instances/srv/config", d.base()))
+        .header("Authorization", &auth)
+        .json(&serde_json::json!({"name": "Survival Renamed"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "PUT /config must accept the rename");
+    let body: serde_json::Value = r.json().await.unwrap();
+    assert_eq!(body.get("ok").and_then(|v| v.as_bool()), Some(true));
+
+    // No restart: the list endpoint must show the new name immediately.
+    let list: serde_json::Value = client
+        .get(format!("{}/api/v1/instances", d.base()))
+        .header("Authorization", &auth)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(list[0]["name"], "Survival Renamed");
+
+    // The per-instance snapshot agrees.
+    let snap: serde_json::Value = client
+        .get(format!("{}/api/v1/instances/srv", d.base()))
+        .header("Authorization", &auth)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(snap["id"], "srv");
+    assert_eq!(snap["name"], "Survival Renamed");
+
+    let _ = std::fs::remove_dir_all(&d.dir);
+}
