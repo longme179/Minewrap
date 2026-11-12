@@ -439,9 +439,17 @@ mod tests {
 
     #[tokio::test]
     async fn probe_of_closed_port_fails_gracefully() {
+        // Ephemeral closed port (bind, note, drop) instead of a fixed
+        // number: a fixed port can be taken by a real service on the
+        // host running the test suite (seen with 25565 vs the user's
+        // own Minecraft server) and would make this fail-path test pass
+        // or flake depending on the environment.
+        let hole = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = hole.local_addr().unwrap().port();
+        drop(hole);
         let info = probe_once(&ProbeConfig {
             host: "127.0.0.1".into(),
-            port: 25499,
+            port,
             query_enabled: false,
             query_port: None,
             timeout: 2.0,

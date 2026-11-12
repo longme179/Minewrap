@@ -88,12 +88,21 @@ mod tests {
 
     #[tokio::test]
     async fn offline_instances_are_not_probed_and_unresponsive_derives() {
+        // Never probe a fixed port (e.g. the 25565 default): the user's
+        // machine may run a REAL Minecraft server there, which answers
+        // the SLP handshake and makes the probe succeed — flipping this
+        // test from "unresponsive" to "online" (observed 2026-11-12).
+        // Bind a listener, note its port, then drop it: closed by the
+        // time poll_once_all sweeps, and no other test can race into it.
+        let hole = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let dead_port = hole.local_addr().unwrap().port();
+        drop(hole);
         let cfg = DaemonConfig {
             daemon: minewrap_core::DaemonSettings {
                 unresponsive_after_failures: 2,
                 ..Default::default()
             },
-            instances: vec![instance("idle", 25565)],
+            instances: vec![instance("idle", dead_port)],
         };
         let mgr = Arc::new(InstanceManager::load(cfg, Arc::new(EventBus::new()), None));
         let _keeper = crate::state_keeper::spawn(mgr.clone());
