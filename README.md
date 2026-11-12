@@ -4,7 +4,7 @@
 
 # Minewrap
 
-Fast, light desktop manager for Minecraft Java Edition servers (one or many, local or remote). A Tauri 2 + Svelte 5 app over a headless Rust daemon: since **v1.10.0** `minewrapd` (axum REST+WebSocket) is the always-on half — servers, SLP status polling and Discord posts keep running with the window closed — and the GUI is a pure client that auto-spawns it on demand.
+Fast, light desktop manager for Minecraft Java Edition servers (one or many, local or remote). A pure-Rust Slint GUI over a headless Rust daemon: since **v1.10.0** `minewrapd` (axum REST+WebSocket) is the always-on half — servers, SLP status polling and Discord posts keep running with the window closed — and the GUI is a pure client that auto-spawns it on demand.
 
 **AppImage (Linux x86_64) is the primary distribution.** Prebuilt AppImages are published on [GitHub Releases](https://github.com/longme179/Minewrap/releases).
 
@@ -40,11 +40,9 @@ chmod +x Minewrap-x86_64.AppImage
 
 ### Run from source (development)
 ```bash
-# Build the UI
-cd ui && pnpm install && pnpm build && cd ..
-
-# Run the desktop app (requires WebKitGTK/libsoup dev headers; see docs/BUILD_APPIMAGE.md)
-cargo run -p minewrap-tauri
+# Run the Slint GUI (development; --no-default-features = accessibility OFF,
+# the measured minimum-RAM configuration)
+cargo run -p minewrap-gui --no-default-features
 
 # Run the headless daemon (binds 127.0.0.1:8080 by default)
 cargo run -p minewrapd -- --config examples/minewrap.toml
@@ -63,11 +61,10 @@ See [`docs/BUILD_APPIMAGE.md`](docs/BUILD_APPIMAGE.md) for full AppImage build p
 build.sh               # build-from-source script (daemon-only or full AppImage)
 Cargo.toml             # Rust workspace
 Cargo.lock             # locked Rust dependencies (reproducible builds)
-crates/minewrap-core   # Tauri-free core: config, process, logs, poller, discord, properties, mods
+crates/minewrap-core   # core: config, process, logs, poller, discord, properties, mods
 crates/minewrapd       # headless axum daemon (REST + WS): state keeper, SLP poller, Discord service
-src-tauri/             # Tauri desktop app — pure client (minewrap-remote, no core)
+crates/minewrap-gui    # pure-Rust Slint GUI client (auto-spawns minewrapd)
 crates/minewrap-remote # reqwest + WS client + shared DTOs (used by the GUI)
-ui/                    # Vite + Svelte + TypeScript frontend
 packaging/             # AppImage build script, AppRun/desktop, systemd unit
 examples/              # example config
 docs/                  # documentation
@@ -77,7 +74,7 @@ docs/                  # documentation
 
 ```bash
 cargo build --workspace
-cd ui && pnpm run check && pnpm build
+cargo build -p minewrap-gui --no-default-features
 ```
 
 ## Docs

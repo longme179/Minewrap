@@ -2,8 +2,7 @@
 //! (port of v1 `instances.py`'s `ManagedInstance` + `InstanceManager`).
 //!
 //! Unlike v1 — which imports the Python daemon stack — this crate is
-//! the headless Axum service; the Tauri shell carries its own
-//! `node_service.rs` (`src-tauri`). Both share `minewrap-core` and
+//! the headless Axum service. Both share `minewrap-core` and
 //! identically-shaped routes/WS messages.
 
 use std::collections::HashMap;

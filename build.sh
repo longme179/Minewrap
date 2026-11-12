@@ -2,21 +2,22 @@
 # Minewrap — build from source (v1.10.0).
 #
 # Modes:
-#   ./build.sh               # everything: daemon + GUI (embedded frontend)
-#   ./build.sh --daemon-only # headless daemon only (no GUI deps needed)
+#   ./build.sh               # everything: daemon + Slint GUI
+#   ./build.sh --daemon-only # headless daemon only (no GUI needed)
 #
 # The script installs missing system dependencies where it can (needs
 # root via sudo for the package manager step; skip with MINEWRAP_NO_SUDO=1
 # if the deps are already present) and then builds with the project's
-# pinned toolchains: cargo (workspace, release) for the Rust side and pnpm
-# for the Svelte UI.
+# pinned toolchain: cargo (workspace, release) for both the daemon and
+# the pure-Rust Slint GUI.
 #
 # Outputs:
-#   binaries/minewrapd            — standalone daemon
-#   target/release/minewrap-tauri — GUI (frontend embedded at compile time)
+#   binaries/minewrapd         — standalone daemon
+#   target/release/minewrap-gui — Slint GUI
 #
-# AppImage bundling is intentionally NOT part of this script yet — it moves
-# to the P1 packaging step together with the native GUI switch.
+# AppImage bundling lives in packaging/build-linux.sh (stages an AppDir
+# from target/release/minewrap-gui + target/release/minewrapd and runs
+# appimagetool -> dist/Minewrap-x86_64.AppImage).
 
 set -euo pipefail
 
@@ -29,28 +30,25 @@ die() { printf '[build] %s\n' "$*" >&2; exit 1; }
 
 need() { command -v "$1" >/dev/null 2>&1 || die "missing tool: $1 ($2)"; }
 
-# --- toolchains -----------------------------------------------------------
+# --- toolchain -----------------------------------------------------------
 need cargo "install Rust via https://rustup.rs"
 
-if [[ $DAEMON_ONLY -eq 0 ]]; then
-  need pnpm "npm i -g pnpm (or corepack enable)"
-fi
-
-# --- system deps (GUI only, Linux + webkit2gtk 4.1) -----------------------
+# --- system deps (GUI: Slint software renderer needs fontconfig/freetype) ---
 if [[ $DAEMON_ONLY -eq 0 && "$(uname -s)" == "Linux" && -z "${MINEWRAP_NO_SUDO:-}" ]]; then
-  if ! pkg-config --exists javascriptcoregtk-4.1 2>/dev/null; then
-    log "installing webkit2gtk / libsoup build deps (sudo)…"
+  if ! pkg-config --exists fontconfig freetype2 2>/dev/null; then
+    log "installing fontconfig/freetype build deps (sudo)…"
     if command -v apt-get >/dev/null 2>&1; then
       sudo apt-get update
       sudo apt-get install -y \
-        libwebkit2gtk-4.1-dev build-essential curl wget file \
-        libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+        build-essential curl wget file libxdo-dev libssl-dev \
+        libayatana-appindicator3-dev librsvg2-dev \
+        libfontconfig1-dev libfreetype6-dev
     elif command -v dnf >/dev/null 2>&1; then
       sudo dnf install -y \
-        webkit2gtk4.1-devel openssl-devel librsvg2-devel \
+        fontconfig-devel freetype-devel openssl-devel librsvg2-devel \
         libappindicator-gtk3-devel xdotool
     else
-      log "unknown package manager — install webkit2gtk 4.1 dev packages manually"
+      log "unknown package manager — install fontconfig/freetype dev packages manually"
     fi
   fi
 fi
@@ -66,19 +64,12 @@ if [[ $DAEMON_ONLY -eq 1 ]]; then
   exit 0
 fi
 
-# --- UI + GUI --------------------------------------------------------------
-log "installing UI deps (pnpm)…"
-(cd "$ROOT/ui" && pnpm install)
+# --- GUI (Slint, pure Rust) ----------------------------------------------
+log "building minewrap-gui (cargo release --no-default-features, accessibility OFF = measured minimum RAM)…"
+cargo build --release -p minewrap-gui --no-default-features
 
-log "building the Svelte UI (fills ui/dist — embedded at compile time)…"
-(cd "$ROOT/ui" && pnpm build)
+# Default-features build (accessibility ON) is also supported for users who
+# need it: cargo build --release -p minewrap-gui
 
-TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
-log "staging daemon sidecar (src-tauri/binaries/minewrapd-$TRIPLE)…"
-install -Dm755 target/release/minewrapd "$ROOT/src-tauri/binaries/minewrapd-$TRIPLE"
-
-log "building the GUI (cargo release — embeds ui/dist + sidecar)…"
-cargo build --release -p minewrap-tauri --features custom-protocol
-
-log "done. daemon: binaries/minewrapd — GUI: target/release/minewrap-tauri"
-log "(AppImage bundling arrives with the P1 native-GUI packaging step.)"
+log "done. daemon: binaries/minewrapd — GUI: target/release/minewrap-gui"
+log "AppImage: ./packaging/build-linux.sh -> dist/Minewrap-x86_64.AppImage"

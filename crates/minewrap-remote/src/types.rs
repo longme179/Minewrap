@@ -1,6 +1,6 @@
-//! Shared DTOs for remote + Tauri (mirror of `src-tauri/src/types.rs`).
-//! The Tauri `MinewrapError` is defined here so both crates share one
-//! error envelope; `src-tauri` re-exports these types.
+//! Shared DTOs for the remote client + GUI.
+//! The `MinewrapError` is defined here so both crates share one
+//! error envelope; the GUI re-exports these types.
 
 use serde::{Deserialize, Serialize};
 

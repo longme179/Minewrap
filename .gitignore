@@ -1,10 +1,6 @@
 # Cargo / Rust
 target/
 *.rs.bk
-
-# Node
-node_modules/
-.pnpm-store/
 dist/
 build-tauri/
 

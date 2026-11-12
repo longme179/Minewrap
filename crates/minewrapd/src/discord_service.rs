@@ -168,7 +168,7 @@ fn fire_due(mgr: &Arc<InstanceManager>, per: &mut HashMap<String, PerInstance>) 
 }
 
 /// One state-change notification (embed + status message), ported from
-/// the v1.9.3 GUI forwarder (`src-tauri/src/main.rs`).
+/// the v1.9.3 GUI forwarder.
 fn spawn_push(mgr: Arc<InstanceManager>, sc: minewrap_core::StateChange, with_status: bool) {
     tokio::spawn(async move {
         let Some(cfg) = mgr.config_of(&sc.instance_id) else {

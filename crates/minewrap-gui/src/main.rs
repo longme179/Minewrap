@@ -1,7 +1,7 @@
 //! minewrap-gui — pure-Rust Slint client for `minewrapd`.
 //!
 //! P1 chunk 4 (on top of chunks 1–2): multi-node. A `NodeService`
-//! (ported from `src-tauri/src/node_service.rs`) holds the local node +
+//! holds the local node +
 //! the remote registry (`nodes.json`, mode 0600, XDG config dir). The
 //! runtime thread polls `/health` + `GET /api/v1/instances` of every
 //! node every 2 s and pushes `(node, state, instances)` to the UI.

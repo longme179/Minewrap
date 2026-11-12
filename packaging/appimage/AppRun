@@ -10,4 +10,4 @@ if [ "${1:-}" = "--daemon" ]; then
   shift
   exec "$HERE/usr/bin/minewrapd" "$@"
 fi
-exec "$HERE/usr/bin/minewrap-tauri" "$@"
+exec "$HERE/usr/bin/minewrap-gui" "$@"

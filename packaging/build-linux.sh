@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
-# Build the single-click portable Minewrap AppImage (GUI + daemon).
+# Build the single-click portable Minewrap AppImage (Slint GUI + daemon).
 #
 # Linux x86_64. Installs nothing system-wide (nothing even under /root,
-# except the one-time appimagetool fetch). When `appimagetool` is
-# missing it downloads the official continuous release into ./tools/
+# except the one-time appimagetool fetch). When `appimagetool` is missing
+# it downloads the official continuous release into ./tools/
 # (project-local, gitignored) and puts it on PATH.
+#
+# The GUI is the pure-Rust Slint client (crates/minewrap-gui), built with
+# --no-default-features so accessibility is OFF (measured minimum RAM
+# configuration, see crates/minewrap-gui/Cargo.toml feature comment).
+# The daemon (minewrapd) is placed beside the GUI binary in usr/bin/ so
+# the GUI's locate_daemon_binary finds it without MINEWRAPD_BIN.
+#
+# No web GUI toolkit / JavaScript frontend is involved — Slint's software
+# renderer needs no system GUI library beyond fontconfig/freetype, which
+# cargo links itself.
 #
 # Also writes `dist/BUILD_FROM_SOURCE.md` with the exact commands so
 # users can reproduce without this script.
@@ -17,12 +27,21 @@ APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/con
 TOOLS_DIR="$ROOT/tools"
 TOOLS_BIN="$TOOLS_DIR/appimagetool"
 
-# --- prerequisites (verified, not installed per rule 8) ---
-for pkg in webkit2gtk-4.1 libsoup-3.0; do
+APP_NAME="Minewrap"
+APP_DIR="$ROOT/$APP_NAME.AppDir"
+DEST="dist/Minewrap-x86_64.AppImage"
+
+# --- prerequisites: cargo + Slint GUI libs (no web GUI toolkit / JS frontend) ---
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "error: cargo not found on PATH." >&2
+  echo "install: https://rustup.rs" >&2
+  exit 1
+fi
+for pkg in fontconfig freetype2; do
   if ! pkg-config --exists "$pkg" 2>/dev/null; then
     echo "error: pkg-config package '$pkg' not found." >&2
-    echo "install: sudo dnf install webkit2gtk-4.1-devel libsoup-devel gtk3-devel" >&2
-    echo "why: Tauri links WebKitGTK; runtime alone will not compile." >&2
+    echo "install: sudo dnf install fontconfig-devel freetype-devel" >&2
+    echo "why: Slint software renderer uses fontconfig/freetype for text (cargo links them)." >&2
     exit 1
   fi
 done
@@ -44,66 +63,75 @@ resolve_appimagetool() {
 
 APPIMAGETOOL="$(resolve_appimagetool)"
 export PATH="$(dirname "$APPIMAGETOOL"):$PATH"
+export ARCH="${ARCH:-x86_64}"
 echo "appimagetool: $($APPIMAGETOOL --version 2>&1 | head -1)"
 
-# --- pnpm (UI) ---
-if ! command -v pnpm >/dev/null 2>&1; then
-  echo "error: pnpm not found on PATH." >&2
-  echo "install: npm install -g pnpm  (or enable corepack/pnpm; see README)" >&2
-  echo "why: builds the Svelte/Tauri frontend." >&2
-  exit 1
-fi
-
-# --- build ---
-# UI first (vite handles its own deps; pnpm approve-builds may be
-# needed once for esbuild — CI does it non-interactively).
-if (cd ui && pnpm install --ignore-scripts >/dev/null 2>&1) && \
-   (cd ui && pnpm run build >/dev/null 2>&1); then
-  echo "ui: built"
-else
-  echo "error: UI build failed (see 'cd ui && pnpm run build')." >&2
-  echo "hint: pnpm approves build scripts once: 'cd ui && pnpm approve-builds' (interactive)." >&2
-  exit 1
-fi
+# --- build daemon + Slint GUI (release) ---
+echo "building minewrapd (cargo release)…"
 cargo build --release -p minewrapd
-mkdir -p src-tauri/binaries
-cp "target/release/minewrapd" "src-tauri/binaries/minewrapd-x86_64-unknown-linux-gnu"
+echo "building minewrap-gui (cargo release --no-default-features)…"
+cargo build --release -p minewrap-gui --no-default-features
 
-# `cargo tauri` needs tauri-cli; use the npm-shipped one from the UI tree.
-TAURI="$(cd ui && pnpm exec tauri --version >/dev/null 2>&1 && echo ui/node_modules/.bin/tauri || echo "")"
-if [ -z "$TAURI" ]; then
-  echo "error: tauri CLI not found (run 'cd ui && pnpm install' first)." >&2
-  exit 1
+# --- stage AppDir ---
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR/usr/bin" \
+         "$APP_DIR/usr/share/applications" \
+         "$APP_DIR/usr/share/icons/hicolor/512x512/apps"
+
+install -Dm755 "target/release/minewrap-gui" "$APP_DIR/usr/bin/minewrap-gui"
+install -Dm755 "target/release/minewrapd"   "$APP_DIR/usr/bin/minewrapd"
+
+# desktop file (Exec=minewrap-gui so the GUI launches from the menu)
+sed -e 's/^Exec=.*/Exec=minewrap-gui/' \
+    packaging/appimage/minewrap.desktop > "$APP_DIR/usr/share/applications/minewrap.desktop"
+# appimagetool also reads the desktop file from the AppDir root
+cp "$APP_DIR/usr/share/applications/minewrap.desktop" "$APP_DIR/minewrap.desktop"
+
+# icon (512x512 apps + top-level minewrap.png for appimagetool detection)
+cp packaging/appimage/minewrap.png "$APP_DIR/usr/share/icons/hicolor/512x512/apps/minewrap.png"
+cp packaging/appimage/minewrap.png "$APP_DIR/minewrap.png"
+
+# AppRun
+cat > "$APP_DIR/AppRun" <<'EOF'
+#!/bin/sh
+# AppImage entry point.
+#
+#   Minewrap-x86_64.AppImage                        -> GUI (Slint)
+#   Minewrap-x86_64.AppImage --daemon --config ...  -> bundled daemon
+#   Minewrap-x86_64.AppImage --daemon --help        -> daemon usage
+HERE="$(dirname "$(readlink -f "$0")")"
+
+if [ "${1:-}" = "--daemon" ]; then
+  shift
+  exec "$HERE/usr/bin/minewrapd" "$@"
 fi
+exec "$HERE/usr/bin/minewrap-gui" "$@"
+EOF
+chmod +x "$APP_DIR/AppRun"
 
-# Run from the repo root so tauri-cli finds the project.
-"$TAURI" build --bundles appimage 2>&1 | tail -5
-
-BUNDLE_DIR="target/release/bundle/appimage"
-ls "$BUNDLE_DIR"/*.AppImage >/dev/null 2>&1 || {
-  echo "error: no AppImage found in $BUNDLE_DIR" >&2
-  exit 1
-}
-
-DEST="dist/Minewrap-x86_64.AppImage"
+# --- bundle with appimagetool ---
 mkdir -p dist
-cp "$BUNDLE_DIR"/*.AppImage "$DEST"
+echo "bundling AppImage with appimagetool…"
+"$APPIMAGETOOL" "$APP_DIR" "$DEST" 2>&1 | tail -8
 chmod +x "$DEST"
 
+echo "built: $DEST"
+
 cat > dist/BUILD_FROM_SOURCE.md <<MD
-# Build Minewrap v1.9.3 from source (Linux x86_64)
+# Build Minewrap v1.10.0 from source (Linux x86_64)
+
+The GUI is the pure-Rust Slint client (\`crates/minewrap-gui\`). The daemon
+(\`crates/minewrapd\`) runs headless. No web GUI toolkit is involved.
 
 ## 1. System dependencies (one-time, system-wide)
 \`\`\`bash
-sudo dnf install webkit2gtk-4.1-devel libsoup-devel gtk3-devel
-# (Tauri links WebKitGTK; runtime alone will not compile)
+sudo dnf install fontconfig-devel freetype-devel
+# (Slint software renderer uses fontconfig/freetype for text; cargo links them)
 \`\`\`
-Verify: \`pkg-config --exists webkit2gtk-4.1 libsoup-3.0\`
+Verify: \`pkg-config --exists fontconfig freetype2\`
 
 ## 2. Toolchain (project-level only)
 \`\`\`bash
-# Node + pnpm (for the UI)
-npm install -g pnpm      # or: corepack enable
 # Rust (stable) — system package or rustup, not installed by this repo
 cargo --version
 
@@ -111,20 +139,19 @@ cargo --version
 curl -fL -o tools/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
 chmod +x tools/appimagetool
 export PATH="\$PWD/tools:\$PATH"
+export ARCH=x86_64
 \`\`\`
 
 ## 3. Build
 \`\`\`bash
+# Daemon + Slint GUI (release; --no-default-features = accessibility OFF,
+# the measured minimum-RAM configuration)
+cargo build --release -p minewrapd
+cargo build --release -p minewrap-gui --no-default-features
+
+# AppImage (packaging/build-linux.sh stages the AppDir and runs appimagetool)
 ./packaging/build-linux.sh
 # -> dist/Minewrap-x86_64.AppImage
-\`\`\`
-Manual equivalent (what the script runs):
-\`\`\`bash
-(cd ui && pnpm install && pnpm run build)
-cargo build --release -p minewrapd
-mkdir -p src-tauri/binaries
-cp target/release/minewrapd src-tauri/binaries/minewrapd-x86_64-unknown-linux-gnu
-./ui/node_modules/.bin/tauri build --bundles appimage
 \`\`\`
 
 ## 4. Run
@@ -133,7 +160,9 @@ cp target/release/minewrapd src-tauri/binaries/minewrapd-x86_64-unknown-linux-gn
 ./dist/Minewrap-x86_64.AppImage --appimage-extract-and-run  # FUSE-less hosts
 ./dist/Minewrap-x86_64.AppImage --daemon --config minewrap.toml  # daemon only
 \`\`\`
+
+The daemon binary sits beside the GUI in the AppImage (\`usr/bin/minewrapd\`),
+so the GUI's daemon locator finds it without setting MINEWRAPD_BIN.
 MD
 
-echo "built: $DEST"
 echo "reproduce: dist/BUILD_FROM_SOURCE.md"

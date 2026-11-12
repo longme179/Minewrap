@@ -1,6 +1,6 @@
 //! Node registry + per-node client surface for the Slint GUI.
 //!
-//! Port of `src-tauri/src/node_service.rs` (P0 daemon-first): pure Rust,
+//! Port of the daemon's node service (P0 daemon-first): pure Rust,
 //! no Tauri. Remote nodes are persisted in `nodes.json` (mode 0600) under
 //! the XDG config dir; the local node is the `minewrapd` this GUI
 //! auto-spawns (URL + token from the daemon spawner in `daemon.rs`).

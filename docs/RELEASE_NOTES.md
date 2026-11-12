@@ -40,6 +40,16 @@
 - systemd unit: `TOKIO_WORKER_THREADS=2`, `MALLOC_ARENA_MAX=2`.
 - Repo hygiene: `build.sh` (build-from-source, `--daemon-only` mode)
   at the root; the repo contains only app code, docs and that script.
+- **Packaging switch (P1-C5, pending tag):** the GUI is now the
+  pure-Rust Slint client (`crates/minewrap-gui`, accessibility OFF via
+  `--no-default-features`) instead of the Tauri 2 + Svelte shell.
+  `src-tauri/` and `ui/` are retired. The distributable is a Slint
+  AppImage built by `packaging/build-linux.sh` (cargo only — no
+  WebKitGTK/libsoup/Node/pnpm/Tauri) that places `usr/bin/minewrap-gui`
+  and `usr/bin/minewrapd` side-by-side so the GUI's daemon locator finds
+  the daemon without `MINEWRAPD_BIN`. Measured idle RAM from the
+  AppImage: GUI 24.01 MiB PSS (budget < 60 MB), daemon 3.93 MiB PSS.
+  Tag pending.
 
 ## v1.9.3
 - Fix orphaned app processes after close: prevent per-instance process-manager runtime threads from blocking forever on exit, harden GUI exit/cleanup flow, and stop the event forwarder when the event bus closes.

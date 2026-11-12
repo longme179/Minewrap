@@ -2,8 +2,8 @@
 //! `StateChange` into the per-instance `InstanceState` held by the
 //! `InstanceManager`, so `GET /api/v1/instances` reports live states.
 //!
-//! This is a port of the logic the Tauri GUI ran in its event forwarder
-//! (`src-tauri/src/node_service.rs::update_process_state`, v1.9.3) —
+//! This is a port of the logic the GUI ran in its event forwarder
+//! (`update_process_state`, v1.9.3) —
 //! same semantics (`last_error`, `started_at`/`stopped_at` inference,
 //! `requested_stop`), different owner: the daemon.
 
