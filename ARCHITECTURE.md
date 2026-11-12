@@ -3,29 +3,18 @@
 **v1.10.0 (P0 daemon-first):** two binaries, one core, and the daemon is
 the always-on half. `minewrapd` (axum) embeds `minewrap-core` and owns
 everything that must survive the GUI closing: process lifecycles, live
-state, SLP polling, Discord pushes. The Tauri app is now a **pure
-client** — it links `minewrap-remote` (not `minewrap-core`), talks
-REST + WS to the daemon, auto-spawns it when needed, and closing the
-window only disconnects. The Svelte frontend is unchanged and still
-talks only to Tauri commands/events carrying `node_id`.
+state, SLP polling, Discord pushes. The GUI is a pure-Rust Slint client
+(`crates/minewrap-gui`) — it links `minewrap-remote` (not `minewrap-core`),
+talks REST + WS to the daemon, auto-spawns it when needed, and closing
+the window only disconnects.
 
 ```mermaid
 flowchart LR
-    subgraph UI [Webview — Svelte SPA]
-        V[Views / stores]
-        IPC[Tauri IPC adapter<br/>+ mock adapter]
-        V <--> IPC
-    end
-
-    subgraph TAURI [src-tauri — pure client]
-        Cmd[commands]
+    subgraph GUI [minewrap-gui — Slint client]
+        Views[Views / stores]
         NodeSvc[NodeService<br/>node registry nodes.json]
         Fwd[/events WS forwarder<br/>reconnect + backfill/]
-        Cmd <--> NodeSvc
-        NodeSvc <--> Fwd
     end
-
-    IPC <--> Cmd
 
     subgraph DAEMON [minewrapd — always on]
         Api[axum REST + WS]
@@ -40,6 +29,7 @@ flowchart LR
         DiscordS --> Core
     end
 
+    GUI <-->|HTTP + WS, Bearer| Api
     NodeSvc <-->|HTTP + WS, Bearer| Api
     NodeSvc -.->|auto-spawn setsid| Daemon
 
@@ -211,15 +201,25 @@ in views). Never expose RCON. Daemon binds `127.0.0.1` by default.
 - Owner tasks spawn lazily (autostart or first start), so N offline
   instances cost no per-instance runtime.
 - The GUI keeps only client state (registry, cached connections, the
-  forwarder) — its memory profile is dominated by WebKitGTK until the
-  P1 pure-Rust GUI lands (that is the point of the P0 spike).
-- Rust keeps only a small log ring for core needs (e.g. Discord/backfill), while the webview owns its larger console ring.
+  forwarder) — its memory profile is dominated by the Slint software
+  renderer; built with `--no-default-features` (accessibility OFF) for
+  the measured minimum-RAM configuration.
+- Rust keeps only a small log ring for core needs (e.g. Discord/backfill);
+  the GUI owns its console ring.
 
 ## Packaging
 
 - `build.sh` (repo root) builds everything from source (`--daemon-only`
-  for headless hosts): cargo release for `minewrapd`, `pnpm tauri
-  build` for the AppImage, which bundles `binaries/minewrapd` as a
-  sidecar.
+  for headless hosts): cargo release for `minewrapd` and
+  `cargo build --release -p minewrap-gui --no-default-features` for the
+  Slint GUI.
+- `packaging/build-linux.sh` builds the portable AppImage
+  (`dist/Minewrap-x86_64.AppImage`): stages `usr/bin/minewrap-gui` +
+  `usr/bin/minewrapd` side-by-side in an AppDir (the GUI's daemon
+  locator finds `minewrapd` next to the exe without `MINEWRAPD_BIN`),
+  the `.desktop` file (`Exec=minewrap-gui`), the icon, and an `AppRun`
+  that execs the GUI (`--daemon` forwards to `minewrapd`); bundles it
+  with `appimagetool`. No WebKitGTK / libsoup / JavaScript frontend toolchain / Tauri.
 - `packaging/minewrapd.service` is the systemd user unit (always-on
   daemon; SIGTERM = graceful stop-all + exit).
+- `dist/BUILD_FROM_SOURCE.md` documents the cargo-only reproduction steps.

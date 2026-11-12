@@ -2,7 +2,7 @@
 Type=Application
 Name=Minewrap
 Comment=Manage Minecraft Java Edition servers
-Exec=minewrap
+Exec=minewrap-gui
 Icon=minewrap
 Categories=Game;Utility;
 Terminal=false

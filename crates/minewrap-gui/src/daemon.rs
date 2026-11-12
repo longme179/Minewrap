@@ -1,4 +1,5 @@
-//! Local daemon discovery — same contract as `src-tauri/src/node_service.rs`:
+//! Local daemon discovery — config host/port/data_dir, /health probe,
+//! detached minewrapd auto-spawn, bearer token from {data_dir}/token.
 //! `MINEWRAP_CONFIG` or `~/.config/minewrap/minewrap.toml` → host/port/data_dir,
 //! `/health` probe, detached `minewrapd` auto-spawn, bearer token from
 //! `{data_dir}/token`.

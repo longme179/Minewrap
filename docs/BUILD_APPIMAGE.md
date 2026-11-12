@@ -1,111 +1,53 @@
-# Build the Minewrap AppImage (Linux x86_64)
+# Building the Minewrap AppImage
 
-The **AppImage** is Minewrap's primary product: a single portable file that bundles the desktop app (Tauri + Svelte) and the `minewrapd` daemon sidecar.
+The AppImage (`dist/Minewrap-x86_64.AppImage`) is Minewrap's primary
+distributable: a single portable file that bundles the pure-Rust Slint
+GUI (`crates/minewrap-gui`) and the `minewrapd` daemon sidecar.
 
-Prebuilt releases are published at <https://github.com/longme179/Minewrap/releases>. This document describes how to build the AppImage from source.
+The GUI and the daemon sit side-by-side in the image
+(`usr/bin/minewrap-gui` + `usr/bin/minewrapd`), so the GUI's daemon
+locator finds `minewrapd` next to the executable without needing
+`MINEWRAPD_BIN`. `--daemon` on the AppRun forwards to `minewrapd`.
 
-## Prerequisites
+No WebKitGTK / libsoup or JavaScript-frontend toolchain is involved.
 
-### System dependencies (build-time)
+## Prerequisites (one-time, system-wide)
 
-Tauri links against WebKitGTK and libsoup. Install the **development** packages for:
-
-- `webkit2gtk-4.1` (pkg-config name: `webkit2gtk-4.1`)
-- `libsoup-3.0` (pkg-config name: `libsoup-3.0`)
-- GTK 3
-
-The build script verifies `webkit2gtk-4.1` and `libsoup-3.0` via `pkg-config` and exits with install hints if they are missing.
-
-**Fedora / RHEL / CentOS Stream**
 ```bash
-sudo dnf install webkit2gtk4.1-devel libsoup3-devel gtk3-devel pkgconf-pkg-config
+sudo dnf install fontconfig-devel freetype-devel
+# Slint's software renderer uses fontconfig/freetype for text; cargo links them.
 ```
 
-**Debian / Ubuntu** (package names may vary by release; ensure WebKitGTK 4.1 + libsoup3 dev packages are installed)
+Verify:
 ```bash
-sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev pkg-config
+pkg-config --exists fontconfig freetype2 && cargo --version
 ```
 
-You also need common build tools (`curl`, a C/C++ toolchain) for Rust crates and bundling.
-
-### Toolchain
-
-- **Rust** (stable) with `cargo` — e.g. via [rustup](https://rustup.rs/) or your distro.
-- **Node.js** and **pnpm** — for building the frontend. `@tauri-apps/cli` is a dev dependency in `ui/`.
-  ```bash
-  npm install -g pnpm   # or: corepack enable
-  ```
-- **appimagetool** (x86_64) — required to produce the `.AppImage`. If not found on `PATH` or at `tools/appimagetool`, `packaging/build-linux.sh` downloads the official continuous build into `tools/` (gitignored). You can also install it manually and put it on `PATH`.
-
-## Quick build
-
-From the repository root:
+## Build
 
 ```bash
 ./packaging/build-linux.sh
+# -> dist/Minewrap-x86_64.AppImage
 ```
 
-Output:
-- `dist/Minewrap-x86_64.AppImage` — portable AppImage (copied from `target/release/bundle/appimage/`)
-- `dist/BUILD_FROM_SOURCE.md` — generated record of the build steps (in `dist/`, gitignored)
+The script:
+1. builds `cargo build --release -p minewrapd` and
+   `cargo build --release -p minewrap-gui --no-default-features`
+   (accessibility OFF = measured minimum-RAM configuration),
+2. stages an AppDir (`usr/bin/minewrap-gui`, `usr/bin/minewrapd`,
+   `usr/share/applications/minewrap.desktop` with `Exec=minewrap-gui`,
+   the icon, and `AppRun` that execs the GUI),
+3. bundles it with `appimagetool` (fetched into `tools/` on first run
+   if missing),
+4. writes `dist/BUILD_FROM_SOURCE.md` with the exact reproduction steps.
 
-> Close any running Minewrap AppImage before rebuilding if you copy over `dist/Minewrap-x86_64.AppImage` (overwriting a running AppImage can fail with "Text file busy").
-
-## What the script does
-
-1. Checks `pkg-config` for `webkit2gtk-4.1` and `libsoup-3.0`.
-2. Resolves `appimagetool` (PATH, `tools/appimagetool`, or download to `tools/`).
-3. Builds the UI: `cd ui && pnpm install --ignore-scripts && pnpm run build`.
-4. Builds the daemon: `cargo build --release -p minewrapd`.
-5. Stages the daemon sidecar: copies `target/release/minewrapd` to `src-tauri/binaries/minewrapd-x86_64-unknown-linux-gnu` (directory is gitignored; Tauri bundles it via `externalBin`).
-6. Bundles the AppImage: runs the Tauri CLI from `ui/node_modules/.bin/tauri` with `build --bundles appimage`.
-7. Copies the resulting AppImage to `dist/Minewrap-x86_64.AppImage` and writes `dist/BUILD_FROM_SOURCE.md`.
-
-## Manual build (equivalent)
+## Run
 
 ```bash
-# UI
-(cd ui && pnpm install && pnpm run build)
-
-# Daemon sidecar for the Tauri bundle
-cargo build --release -p minewrapd
-mkdir -p src-tauri/binaries
-cp target/release/minewrapd src-tauri/binaries/minewrapd-x86_64-unknown-linux-gnu
-
-# AppImage bundle (from repo root)
-./ui/node_modules/.bin/tauri build --bundles appimage
-
-# Result
-ls target/release/bundle/appimage/*.AppImage
+./dist/Minewrap-x86_64.AppImage                      # GUI (FUSE)
+./dist/Minewrap-x86_64.AppImage --appimage-extract-and-run  # FUSE-less hosts
+./dist/Minewrap-x86_64.AppImage --daemon --config minewrap.toml  # daemon only
 ```
 
-## Run the AppImage
-
-```bash
-chmod +x dist/Minewrap-x86_64.AppImage
-./dist/Minewrap-x86_64.AppImage
-```
-
-On systems without FUSE:
-```bash
-./dist/Minewrap-x86_64.AppImage --appimage-extract-and-run
-```
-
-## Reproducibility and repository notes
-
-- `Cargo.lock` and `ui/pnpm-lock.yaml` are committed to pin dependencies for reproducible builds.
-- Build outputs and fetched tools are **not** committed: `target/`, `dist/`, `ui/node_modules/`, `src-tauri/binaries/`, `tools/` are gitignored. The build script creates/populates the required build-time artifacts locally.
-- Tauri bundle configuration (AppImage target, icons, external daemon binary) lives in `src-tauri/tauri.conf.json`; AppImage packaging assets are in `packaging/`.
-
-## Troubleshooting
-
-- **`webkit2gtk-4.1` / `libsoup-3.0` not found**: install the matching `-dev`/`-devel` packages and ensure `pkg-config` can see them (`pkg-config --modversion webkit2gtk-4.1 libsoup-3.0`).
-- **`tauri CLI not found`**: run `cd ui && pnpm install` so `ui/node_modules/.bin/tauri` is available (or install the Tauri CLI and adjust the command).
-- **AppImage fails to run (FUSE)**: use `--appimage-extract-and-run`.
-- **`Text file busy` when copying to `dist/`**: close the running Minewrap AppImage and rebuild/copy again.
-
-## Related
-
-- [`../README.md`](../README.md) — project overview and quick start
-- [`../packaging/build-linux.sh`](../packaging/build-linux.sh) — canonical build script
-- [`remote-access.md`](remote-access.md) — accessing a remote `minewrapd` daemon
+See `ARCHITECTURE.md` §Packaging and `dist/BUILD_FROM_SOURCE.md` for
+details.
