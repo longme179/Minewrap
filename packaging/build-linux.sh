@@ -87,9 +87,20 @@ sed -e 's/^Exec=.*/Exec=minewrap-gui/' \
 # appimagetool also reads the desktop file from the AppDir root
 cp "$APP_DIR/usr/share/applications/minewrap.desktop" "$APP_DIR/minewrap.desktop"
 
-# icon (512x512 apps + top-level minewrap.png for appimagetool detection)
-cp packaging/appimage/minewrap.png "$APP_DIR/usr/share/icons/hicolor/512x512/apps/minewrap.png"
-cp packaging/appimage/minewrap.png "$APP_DIR/minewrap.png"
+# icon (rendered from the SVG source; appimagetool needs PNG for detection)
+ICON_SRC=packaging/appimage/minewrap.svg
+ICON_PNG="$APP_DIR/minewrap.png"
+if command -v magick >/dev/null 2>&1; then
+  magick -background none "$ICON_SRC" -resize 512x512 "$ICON_PNG"
+elif command -v rsvg-convert >/dev/null 2>&1; then
+  rsvg-convert -w 512 -h 512 -b none "$ICON_SRC" -o "$ICON_PNG"
+elif command -v convert >/dev/null 2>&1; then
+  convert -background none "$ICON_SRC" -resize 512x512 "$ICON_PNG"
+else
+  echo "error: no SVG rasterizer (magick/rsvg-convert/convert) found." >&2
+  exit 1
+fi
+install -Dm644 "$ICON_PNG" "$APP_DIR/usr/share/icons/hicolor/512x512/apps/minewrap.png"
 
 # AppRun
 cat > "$APP_DIR/AppRun" <<'EOF'
