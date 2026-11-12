@@ -960,7 +960,11 @@ export component App inherits Window {
                                 }
                             }
                         }
+                    }
                     // ---- properties overlay ----
+                    // (sibling of the settings overlay under the main-column
+                    // Rectangle — NOT nested inside it, otherwise the whole
+                    // subtree hides when settings-tab != 1)
                     Rectangle {
                         visible: root.settings-tab == 2;
                         x: 0;
@@ -1116,7 +1120,10 @@ export component App inherits Window {
                                 for m in root.mods-filtered: Rectangle {
                                     visible: !root.mods-empty;
                                     height: Theme.h-44;
-                                    background: ta.has-hover ? Theme.muted : transparent;
+                                    // NOTE: no full-row TouchArea here — it would sit
+                                    // above the HorizontalLayout (z-order) and swallow
+                                    // the per-row Disable/Enable TokBtn clicks.
+                                    background: transparent;
                                     HorizontalLayout {
                                         padding-left: Theme.space-8;
                                         padding-right: Theme.space-8;
@@ -1147,7 +1154,6 @@ export component App inherits Window {
                                             clicked => { root.mods-toggle(m.name, !m.enabled); }
                                         }
                                     }
-                                    ta := TouchArea { clicked => {} }
                                 }
                             }
                         }
@@ -1398,7 +1404,6 @@ export component App inherits Window {
                         }
                     }
                 }
-            }
             // ---- status bar ----
             Rectangle {
                 height: Theme.h-26;
