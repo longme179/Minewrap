@@ -25,6 +25,16 @@ export struct InstRow {
                    // 4 crashed, 5 unresponsive, 6 unknown
 }
 
+export struct NodeRow {
+    id: string,
+    name: string,
+    url: string,
+    is_local: bool,
+    state: string, // connection label (online / connecting / offline / …)
+    code: int,     // dot color code, same scale as InstRow.code
+    instances: [InstRow],
+}
+
 export struct ModRow {
     name: string,
     size: string,
@@ -218,8 +228,10 @@ export component App inherits Window {
     default-font-size: Theme.text-base;
 
     in-out property <[InstRow]> instances;
+    in-out property <[NodeRow]> nodes: [];
     in-out property <[LogLine]> lines;
     in-out property <string> selected-id: "";
+    in-out property <string> selected-node: "";
     in-out property <string> instance-name: "";
     in-out property <string> instance-state: "—";
     in-out property <int> instance-code: 6;
@@ -309,13 +321,16 @@ export component App inherits Window {
     in-out property <string> confirm-text: "";
     in-out property <string> confirm-action: "";
     in-out property <string> confirm-id: "";
+    in-out property <string> confirm-node: "";
 
-    callback pick(int);
     callback step(int);
     callback control(string);
     callback send-command(string);
     callback copy-selection(int, int);
     callback add-instance();
+    callback add-node();
+    callback pick-node(string);
+    callback pick-inst(string);
     callback remove-instance(string);
     callback settings-touched();
     callback settings-save();
@@ -404,47 +419,96 @@ export component App inherits Window {
             spacing: 0px;
             HorizontalLayout {
                 spacing: 0px;
-                // ---- sidebar: instances ----
+                // ---- sidebar: nodes grouped, instances nested ----
                 Rectangle {
                     width: Theme.w-240;
                     background: Theme.card;
-                    VerticalLayout {
-                        padding: Theme.space-10;
-                        spacing: Theme.space-6;
-                        Text {
-                            text: "INSTANCES";
-                            color: Theme.muted-fg;
-                            font-size: Theme.text-xs;
-                            height: Theme.line-h;
-                        }
-                        for inst[j] in root.instances: InstanceRow {
-                            id: inst.id;
-                            name: inst.name;
-                            state: inst.state;
-                            code: inst.code;
-                            selected: root.selected-id == inst.id;
-                            picked => { root.pick(j); }
-                        }
-                        Rectangle { vertical-stretch: 1; }
-                        TokBtn {
-                            label: "+ Add instance";
-                            clicked => { root.add-instance(); }
-                        }
-                        Rectangle { height: Theme.hairline; background: Theme.border; }
-                        HorizontalLayout {
+                    ScrollView {
+                        width: parent.width;
+                        height: parent.height;
+                        VerticalLayout {
+                            padding: Theme.space-10;
                             spacing: Theme.space-6;
-                            height: Theme.line-h;
-                            Rectangle {
-                                width: Theme.space-8;
-                                height: Theme.space-8;
-                                border-radius: Theme.radius-xs;
-                                background: root.daemon-ok ? Theme.online : Theme.crashed;
-                            }
                             Text {
-                                text: root.daemon-ok ? "daemon connected" : "daemon offline";
+                                text: "NODES";
                                 color: Theme.muted-fg;
-                                font-size: Theme.text-sm;
-                                vertical-alignment: center;
+                                font-size: Theme.text-xs;
+                                height: Theme.line-h;
+                            }
+                            for node in root.nodes: Rectangle {
+                                VerticalLayout {
+                                    spacing: 0px;
+                                    // node heading: name + state dot
+                                    Rectangle {
+                                        height: Theme.h-44;
+                                        background: root.selected-node == node.id ? Theme.selection
+                                            : (ta.has-hover ? Theme.card-hover : transparent);
+                                        HorizontalLayout {
+                                            padding-left: Theme.space-8;
+                                            padding-right: Theme.space-8;
+                                            spacing: Theme.space-8;
+                                            Rectangle {
+                                                width: Theme.space-8;
+                                                height: Theme.space-8;
+                                                border-radius: Theme.radius-xs;
+                                                background: root.state-color(node.code);
+                                            }
+                                            Text {
+                                                text: node.name;
+                                                color: Theme.fg;
+                                                font-size: Theme.text-base;
+                                                overflow: elide;
+                                                horizontal-stretch: 1;
+                                            }
+                                            Text {
+                                                text: node.state;
+                                                color: Theme.muted-fg;
+                                                font-size: Theme.text-xs;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                        ta := TouchArea {
+                                            width: parent.width;
+                                            height: parent.height;
+                                            clicked => { root.pick-node(node.id); }
+                                        }
+                                    }
+                                    // instances of this node
+                                    for inst in node.instances: InstanceRow {
+                                        id: inst.id;
+                                        name: inst.name;
+                                        state: inst.state;
+                                        code: inst.code;
+                                        selected: root.selected-id == inst.id;
+                                        picked => { root.pick-inst(inst.id); }
+                                    }
+                                }
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                            TokBtn {
+                                label: "+ Add node";
+                                clicked => { root.add-node(); }
+                            }
+                            TokBtn {
+                                label: "+ Add instance";
+                                clicked => { root.add-instance(); }
+                            }
+                            Rectangle { height: Theme.hairline; background: Theme.border; }
+                            HorizontalLayout {
+                                spacing: Theme.space-6;
+                                height: Theme.line-h;
+                                Rectangle {
+                                    width: Theme.space-8;
+                                    height: Theme.space-8;
+                                    border-radius: Theme.radius-xs;
+                                    background: root.daemon-ok ? Theme.online : Theme.crashed;
+                                }
+                                Text {
+                                    text: root.daemon-ok ? "daemon connected" : "daemon offline";
+                                    color: Theme.muted-fg;
+                                    font-size: Theme.text-sm;
+                                    vertical-alignment: center;
+                                }
                             }
                         }
                     }
@@ -1772,4 +1836,210 @@ export component WizardWindow inherits Window {
             }
         }
     }
+}
+
+/// Nodes panel: registry table (name, url, state, retry/remove) plus the
+/// Add remote node form. Lazy-created and shown from the sidebar
+/// ("+ Add node") — like the wizard, a window must not be created before
+/// `run()` on the winit-wayland + software-renderer path.
+export component NodesWindow inherits Window {
+    title: "Nodes — Minewrap";
+    width: 740px;
+    height: 560px;
+    background: Theme.bg;
+    default-font-family: "Noto Sans";
+    default-font-size: Theme.text-base;
+
+    in-out property <[NodeRow]> nodes: [];
+    in-out property <string> new-name: "";
+    in-out property <string> new-url: "";
+    in-out property <string> new-token: "";
+    in-out property <string> nodes-error: "";
+
+    callback add-node(string, string, string);
+    callback remove-node(string);
+    callback retry-node(string);
+
+    pure function dot-color(code: int) -> color {
+        return code == 0 ? Theme.online
+            : code == 1 || code == 2 ? Theme.warn
+            : code == 4 || code == 5 ? Theme.crashed
+            : Theme.offline;
+    }
+
+    VerticalLayout {
+        padding: Theme.space-16;
+        spacing: Theme.space-12;
+
+        HorizontalLayout {
+            spacing: Theme.space-8;
+            Text {
+                text: "Nodes";
+                color: Theme.fg;
+                font-size: Theme.text-xl;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Btn2 {
+                label: "Close";
+                clicked => { root.hide(); }
+            }
+        }
+
+        ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout { spacing: Theme.space-6;
+                for node in root.nodes: Rectangle {
+                    height: Theme.h-44;
+                    background: (ta.has-hover ? Theme.card-hover : transparent);
+                    border-radius: Theme.space-6;
+                    HorizontalLayout {
+                        padding-left: Theme.space-8;
+                        padding-right: Theme.space-8;
+                        spacing: Theme.space-8;
+                        Rectangle {
+                            width: Theme.space-8;
+                            height: Theme.space-8;
+                            border-radius: Theme.radius-xs;
+                            background: root.dot-color(node.code);
+                        }
+                        Text {
+                            text: node.name;
+                            color: Theme.fg;
+                            font-size: Theme.text-base;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                        }
+                        Text {
+                            text: node.url;
+                            color: Theme.muted-fg;
+                            font-family: "Noto Sans Mono";
+                            font-size: Theme.text-xs;
+                            width: Theme.w-240;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: node.state;
+                            color: Theme.muted-fg;
+                            font-size: Theme.text-xs;
+                            vertical-alignment: center;
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        TokBtn {
+                            label: "Retry";
+                            enabled: node.code != 0;
+                            clicked => { root.retry-node(node.id); }
+                        }
+                        TokBtn {
+                            label: "Remove";
+                            danger: true;
+                            enabled: !node.is_local;
+                            clicked => { root.remove-node(node.id); }
+                        }
+                    }
+                    ta := TouchArea {
+                        width: parent.width;
+                        height: parent.height;
+                        clicked => {}
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            background: Theme.card;
+            border-radius: Theme.space-6;
+            border-width: Theme.hairline;
+            border-color: Theme.border;
+            VerticalLayout {
+                spacing: Theme.space-8;
+                padding: Theme.space-10;
+
+                Text {
+                    text: "Add remote node";
+                    color: Theme.muted-fg;
+                    font-size: Theme.text-sm;
+                }
+
+                HorizontalLayout { spacing: Theme.space-8;
+                    Text {
+                        text: "Name";
+                        color: Theme.muted-fg;
+                        font-size: Theme.text-sm;
+                        width: Theme.w-120;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        text <=> root.new-name;
+                        placeholder-text: "Home server";
+                        horizontal-stretch: 1;
+                        font-size: Theme.text-base;
+                        edited => { root.nodes-error = ""; }
+                    }
+                }
+
+                HorizontalLayout { spacing: Theme.space-8;
+                    Text {
+                        text: "URL";
+                        color: Theme.muted-fg;
+                        font-size: Theme.text-sm;
+                        width: Theme.w-120;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        text <=> root.new-url;
+                        placeholder-text: "http://127.0.0.1:8391";
+                        font-family: "Noto Sans Mono";
+                        horizontal-stretch: 1;
+                        font-size: Theme.text-base;
+                        edited => { root.nodes-error = ""; }
+                    }
+                }
+
+                HorizontalLayout { spacing: Theme.space-8;
+                    Text {
+                        text: "Token";
+                        color: Theme.muted-fg;
+                        font-size: Theme.text-sm;
+                        width: Theme.w-120;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        text <=> root.new-token;
+                        placeholder-text: "Bearer token from the remote minewrapd";
+                        font-family: "Noto Sans Mono";
+                        horizontal-stretch: 1;
+                        font-size: Theme.text-base;
+                        edited => { root.nodes-error = ""; }
+                    }
+                }
+
+                Text {
+                    visible: root.nodes-error != "";
+                    text: root.nodes-error;
+                    color: Theme.err;
+                    font-size: Theme.text-sm;
+                }
+
+                HorizontalLayout { spacing: Theme.space-8;
+                    Btn2 {
+                        label: "Add node";
+                        primary: true;
+                        enabled: root.new-url != "";
+                        clicked => {
+                            root.add-node(root.new-name, root.new-url, root.new-token);
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+
+                Text {
+                    text: "The token is stored in nodes.json (mode 0600) and is never shown again.";
+                    color: Theme.muted-fg;
+                    font-size: Theme.text-xs;
+                }
+            }
+        }
+    }
+
 }

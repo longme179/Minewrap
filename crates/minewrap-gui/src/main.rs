@@ -1,29 +1,36 @@
 //! minewrap-gui — pure-Rust Slint client for `minewrapd`.
 //!
-//! P1 chunk 2 (on top of chunk 1): add-instance wizard dialog, per-instance
-//! Settings panel (Instance / Probe / Restart, dirty tracking, discard
-//! confirmation), Remove instance with confirmation, and the REST calls they
-//! need (add / remove / get-config / update-config / detect-java /
-//! scan-workdir) routed through the same runtime thread + mpsc channel as
-//! chunk 1 — no blocking of the Slint UI thread.
+//! P1 chunk 4 (on top of chunks 1–2): multi-node. A `NodeService`
+//! (ported from `src-tauri/src/node_service.rs`) holds the local node +
+//! the remote registry (`nodes.json`, mode 0600, XDG config dir). The
+//! runtime thread polls `/health` + `GET /api/v1/instances` of every
+//! node every 2 s and pushes `(node, state, instances)` to the UI.
+//! Every instance-scoped REST call carries `node_id`, so it reaches the
+//! right daemon; the console WebSocket connects only for the selected
+//! instance (hence only for its node).
+//!
+//! P1 chunk 2 (add-instance wizard, per-instance Settings panel, Remove
+//! instance) is unchanged, except every command is tagged with the node
+//! of the selected instance.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-only
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
-use minewrap_remote::RemoteClient;
 use minewrap_remote::types::{InstanceSummaryDto, LogLineDto};
 use minewrap_gui::config_view::{DiscordForm, RAM_MIN_MB, SettingsForm, WizardForm};
+use minewrap_gui::nodes::{self, NodeInstances, NodeService, LOCAL_NODE_ID};
+use minewrap_gui::runtime::{self, Cmd, UiMsg};
 use slint::{ModelRc, SharedString, Timer, TimerMode, VecModel};
 use tokio::sync::{mpsc, watch};
 
 use minewrap_gui::console::{self, PushOutcome, Ring};
 use minewrap_gui::daemon;
 use minewrap_gui::instances;
-use minewrap_gui::runtime::{self, Cmd, UiMsg};
 
 slint::include_modules!();
 
@@ -34,15 +41,21 @@ type PendingLine = (String, LogLineDto);
 struct State {
     ring: Ring,
     pending: VecDeque<PendingLine>,
-    instances: Vec<InstanceSummaryDto>,
-    selected: Option<String>,
+    /// `instance_id` → instances, grouped by the node that owns them.
+    instances_by_node: HashMap<String, Vec<InstanceSummaryDto>>,
+    selected: Option<String>,      // instance id shown in the main column
+    selected_node: Option<String>, // node owning `selected`
     line_model: Rc<VecModel<LogLine>>,
-    inst_model: Rc<VecModel<InstRow>>,
+    /// Rust mirror of the slint `nodes` model (sidebar groups).
+    nodes: Vec<NodeRow>,
+    node_model: Rc<VecModel<NodeRow>>,
     cmd_tx: mpsc::UnboundedSender<Cmd>,
-    sel_tx: watch::Sender<Option<String>>,
+    sel_tx: watch::Sender<Option<(String, String)>>,
     clipboard: Option<arboard::Clipboard>,
     /// The add-instance wizard dialog (created hidden, shown on demand).
     wizard: Option<WizardWindow>,
+    /// The nodes window (Add/Remove remote-node table; lazy-created).
+    nodes_window: Option<NodesWindow>,
     /// Dirty tracking for the Settings panel: the JSON snapshot of the
     /// form as loaded, compared against the live form on every edit.
     settings_saved: String,
@@ -76,17 +89,25 @@ struct State {
 }
 
 impl State {
-    /// Switch the console to `id`, resetting the ring/backfill cursor.
-    fn select(&mut self, ui: &App, id: &str) {
-        if self.selected.as_deref() == Some(id) {
+    /// Switch the console to `id` on `node_id`, resetting the
+    /// ring/backfill cursor. The watch selection carries `(node, instance)`
+    /// so the runtime reconnects the console WebSocket to the right node.
+    fn select(&mut self, ui: &App, node_id: &str, id: &str) {
+        if self.selected.as_deref() == Some(id)
+            && self.selected_node.as_deref() == Some(node_id)
+        {
             return;
         }
+        self.selected_node = Some(node_id.to_string());
         self.selected = Some(id.to_string());
         self.ring.reset();
         self.pending.clear();
         self.line_model.set_vec(Vec::new());
-        self.sel_tx.send(Some(id.to_string())).ok();
+        self.sel_tx
+            .send(Some((node_id.to_string(), id.to_string())))
+            .ok();
         ui.set_selected_id(id.into());
+        ui.set_selected_node(node_id.into());
         ui.set_sel_lo(-1);
         ui.set_sel_hi(-1);
         ui.set_stick(true);
@@ -94,10 +115,10 @@ impl State {
         // The panel matching the current tab shows the selected instance:
         // (re)load its data; other panels drop their dirty state.
         match ui.get_settings_tab() {
-            1 => load_settings(ui, self, id),
-            2 => load_properties(ui, self, id),
-            3 => load_mods(ui, self, id),
-            4 => load_notifications(ui, self, id),
+            1 => load_settings(ui, self, node_id, id),
+            2 => load_properties(ui, self, node_id, id),
+            3 => load_mods(ui, self, node_id, id),
+            4 => load_notifications(ui, self, node_id, id),
             _ => {
                 self.settings_dirty = false;
                 self.properties_dirty = false;
@@ -120,41 +141,105 @@ impl State {
         self.settings_dirty || self.properties_dirty || self.notif_dirty
     }
 
-    /// Rebuild the sidebar model, keeping (or choosing) a valid selection.
-    fn apply_instances(&mut self, ui: &App, list: Vec<InstanceSummaryDto>) {
-        self.instances = list;
-        let rows: Vec<InstRow> = self
-            .instances
+    /// Clicked a node header in the sidebar: highlight the node and, when
+    /// nothing is selected yet, select its first instance.
+    fn pick_node(&mut self, ui: &App, id: &str) {
+        self.selected_node = Some(id.to_string());
+        ui.set_selected_node(id.into());
+        if self.selected.is_none() {
+            let first_id = self
+                .instances_by_node
+                .get(id)
+                .and_then(|list| list.first().map(|i| i.id.clone()));
+            if let Some(first_id) = first_id {
+                self.select(ui, id, &first_id);
+            }
+        }
+    }
+
+    /// Rebuild the sidebar node model, keeping (or choosing) a valid
+    /// selection.
+    fn apply_instances(&mut self, ui: &App, all: Vec<NodeInstances>) {
+        self.instances_by_node = all
             .iter()
-            .map(|i| {
-                let code = instances::state_code(&i.combined_state);
-                InstRow {
-                    id: i.id.as_str().into(),
-                    name: if i.name.is_empty() {
-                        i.id.as_str().into()
-                    } else {
-                        i.name.as_str().into()
-                    },
-                    state: instances::state_label(code).into(),
+            .map(|ni| (ni.node.id.clone(), ni.instances.clone()))
+            .collect();
+
+        let rows: Vec<NodeRow> = all
+            .iter()
+            .map(|ni| {
+                let (label, code) = nodes::node_state_summary(ni.node.state);
+                let inst_rows: Vec<InstRow> = ni
+                    .instances
+                    .iter()
+                    .map(|i| {
+                        let code = instances::state_code(&i.combined_state);
+                        InstRow {
+                            id: i.id.as_str().into(),
+                            name: if i.name.is_empty() {
+                                i.id.as_str().into()
+                            } else {
+                                i.name.as_str().into()
+                            },
+                            state: instances::state_label(code).into(),
+                            code,
+                        }
+                    })
+                    .collect();
+                NodeRow {
+                    id: ni.node.id.as_str().into(),
+                    name: ni.node.name.as_str().into(),
+                    url: ni.node.url.as_str().into(),
+                    is_local: ni.node.is_local,
+                    state: label.into(),
                     code,
+                    instances: Rc::new(VecModel::from(inst_rows)).into(),
                 }
             })
             .collect();
-        self.inst_model.set_vec(rows);
+        self.node_model.set_vec(rows.clone());
+        self.nodes = rows;
 
-        let still_there = self
-            .selected
-            .as_ref()
-            .is_some_and(|id| self.instances.iter().any(|i| &i.id == id));
-        if !still_there {
+        let still_valid = self.selected.as_ref().is_some_and(|id| {
+            self.selected_node.as_deref().is_some_and(|node| {
+                self.instances_by_node
+                    .get(node)
+                    .is_some_and(|list| list.iter().any(|i| &i.id == id))
+            })
+        });
+        if !still_valid {
             self.pending.clear();
             self.ring.reset();
             self.line_model.set_vec(Vec::new());
             self.selected = None;
             self.sel_tx.send(None).ok();
             ui.set_selected_id("".into());
+            ui.set_selected_node("".into());
             ui.set_sel_lo(-1);
             ui.set_sel_hi(-1);
+            // Reselect: prefer the previously selected node, else the
+            // first node that has instances (local node sorts first).
+            let selected_node = self.selected_node.clone();
+            if let Some(node) = selected_node.as_deref() {
+                let first_id = self
+                    .instances_by_node
+                    .get(node)
+                    .and_then(|list| list.first().map(|i| i.id.clone()));
+                if let Some(first_id) = first_id {
+                    self.select(ui, node, &first_id);
+                    return;
+                }
+            }
+            for ni in &all {
+                let first_id = ni
+                    .instances
+                    .first()
+                    .map(|i| i.id.clone());
+                if let Some(first_id) = first_id {
+                    self.select(ui, &ni.node.id, &first_id);
+                    return;
+                }
+            }
             self.settings_dirty = false;
             self.properties_dirty = false;
             self.notif_dirty = false;
@@ -164,13 +249,9 @@ impl State {
             ui.set_settings_dirty(false);
             ui.set_properties_dirty(false);
             ui.set_notif_dirty(false);
-            if let Some(first) = self.instances.first().map(|i| i.id.clone()) {
-                self.select(ui, &first);
-            } else {
-                ui.set_instance_name("".into());
-                ui.set_instance_state("—".into());
-                ui.set_instance_code(instances::UNKNOWN);
-            }
+            ui.set_instance_name("".into());
+            ui.set_instance_state("—".into());
+            ui.set_instance_code(instances::UNKNOWN);
         } else {
             self.refresh_header(ui);
         }
@@ -178,22 +259,30 @@ impl State {
 
     /// Header fields come from the polled summary (name + combined_state).
     fn refresh_header(&self, ui: &App) {
+        let Some(node) = self.selected_node.as_deref() else {
+            return;
+        };
         let Some(id) = self.selected.as_deref() else {
             return;
         };
-        if let Some(summary) = self.instances.iter().find(|i| i.id == id) {
-            let code = instances::state_code(&summary.combined_state);
-            ui.set_instance_name(
-                if summary.name.is_empty() {
-                    summary.id.as_str()
-                } else {
-                    summary.name.as_str()
-                }
-                .into(),
-            );
-            ui.set_instance_state(instances::state_label(code).into());
-            ui.set_instance_code(code);
-        }
+        let Some(summary) = self
+            .instances_by_node
+            .get(node)
+            .and_then(|list| list.iter().find(|i| &i.id == id))
+        else {
+            return;
+        };
+        let code = instances::state_code(&summary.combined_state);
+        ui.set_instance_name(
+            if summary.name.is_empty() {
+                summary.id.as_str()
+            } else {
+                summary.name.as_str()
+            }
+            .into(),
+        );
+        ui.set_instance_state(instances::state_label(code).into());
+        ui.set_instance_code(code);
     }
 
     /// Accept at most `budget` lines into the model (batch, not per line).
@@ -260,6 +349,23 @@ impl State {
     }
 }
 
+/// Which node owns an instance id (from the latest poll).
+fn resolve_node(state: &State, id: &str) -> Option<String> {
+    state
+        .instances_by_node
+        .iter()
+        .find(|(_, list)| list.iter().any(|i| &i.id == id))
+        .map(|(node, _)| node.clone())
+}
+
+/// The `(node_id, instance_id)` of the current selection.
+fn selection(state: &State) -> Option<(String, String)> {
+    Some((
+        state.selected_node.clone()?,
+        state.selected.clone()?,
+    ))
+}
+
 /// Title/text/action for the confirm dialog of the dirty panel (priority:
 /// Settings > Properties > Notifications).
 fn dirty_panel(state: &State) -> (&'static str, &'static str, &'static str) {
@@ -289,30 +395,34 @@ fn dirty_panel(state: &State) -> (&'static str, &'static str, &'static str) {
 fn finish_pending(state: &mut State, ui: &App) {
     ui.set_confirm_open(false);
     if let Some(id) = state.pending_switch.take() {
-        state.select(ui, &id);
+        let node = match resolve_node(state, &id) {
+            Some(n) => n,
+            None => return,
+        };
+        state.select(ui, &node, &id);
         return;
     }
     if let Some(target) = state.pending_tab.take() {
         ui.set_settings_tab(target);
         match target {
             1 => {
-                if let Some(id) = state.selected.clone() {
-                    load_settings(ui, state, &id);
+                if let Some((node, id)) = selection(state) {
+                    load_settings(ui, state, &node, &id);
                 }
             }
             2 => {
-                if let Some(id) = state.selected.clone() {
-                    load_properties(ui, state, &id);
+                if let Some((node, id)) = selection(state) {
+                    load_properties(ui, state, &node, &id);
                 }
             }
             3 => {
-                if let Some(id) = state.selected.clone() {
-                    load_mods(ui, state, &id);
+                if let Some((node, id)) = selection(state) {
+                    load_mods(ui, state, &node, &id);
                 }
             }
             4 => {
-                if let Some(id) = state.selected.clone() {
-                    load_notifications(ui, state, &id);
+                if let Some((node, id)) = selection(state) {
+                    load_notifications(ui, state, &node, &id);
                 }
             }
             _ => {}
@@ -357,41 +467,53 @@ fn java_items_with(state: &State, current: &str) -> Rc<VecModel<SharedString>> {
     Rc::new(VecModel::from(items))
 }
 
-/// Load `GET …/config` for `id` into the Settings form.
-fn load_settings(ui: &App, state: &mut State, id: &str) {
+/// Load `GET …/config` for `id` on `node_id` into the Settings form.
+fn load_settings(ui: &App, state: &mut State, node_id: &str, id: &str) {
     state.settings_dirty = false;
     state.settings_saved.clear();
     ui.set_settings_dirty(false);
     ui.set_settings_error("".into());
     ui.set_settings_status("".into());
     ui.set_settings_loading(true);
-    state.cmd_tx.send(Cmd::GetConfig(id.to_string())).ok();
+    state
+        .cmd_tx
+        .send(Cmd::GetConfig(node_id.to_string(), id.to_string()))
+        .ok();
 }
 
-/// Load `GET …/properties` for `id` into the Properties panel.
-fn load_properties(ui: &App, state: &mut State, id: &str) {
+/// Load `GET …/properties` for `id` on `node_id` into the Properties panel.
+fn load_properties(ui: &App, state: &mut State, node_id: &str, id: &str) {
     state.properties_saved.clear();
     ui.set_properties_dirty(false);
     ui.set_properties_error("".into());
     ui.set_properties_status("".into());
     ui.set_properties_loading(true);
-    state.cmd_tx.send(Cmd::GetProperties(id.to_string())).ok();
+    state
+        .cmd_tx
+        .send(Cmd::GetProperties(node_id.to_string(), id.to_string()))
+        .ok();
 }
 
-/// Load `GET …/mods` for `id` into the Mods panel.
-fn load_mods(ui: &App, state: &mut State, id: &str) {
+/// Load `GET …/mods` for `id` on `node_id` into the Mods panel.
+fn load_mods(ui: &App, state: &mut State, node_id: &str, id: &str) {
     ui.set_mods_status("".into());
     ui.set_mods_loading(true);
-    state.cmd_tx.send(Cmd::ListMods(id.to_string())).ok();
+    state
+        .cmd_tx
+        .send(Cmd::ListMods(node_id.to_string(), id.to_string()))
+        .ok();
 }
 
-/// Load `GET …/config` (discord group) for `id` into the Notifications panel.
-fn load_notifications(ui: &App, state: &mut State, id: &str) {
+/// Load `GET …/config` (discord group) for `id` on `node_id` into the Notifications panel.
+fn load_notifications(ui: &App, state: &mut State, node_id: &str, id: &str) {
     state.config_target = Some("notifications".into());
     ui.set_notif_load_error("".into());
     ui.set_notif_error("".into());
     ui.set_notif_status("".into());
-    state.cmd_tx.send(Cmd::GetConfig(id.to_string())).ok();
+    state
+        .cmd_tx
+        .send(Cmd::GetConfig(node_id.to_string(), id.to_string()))
+        .ok();
 }
 
 /// Read the live Notifications form from Slint properties.
@@ -423,8 +545,7 @@ fn read_notif_form(ui: &App) -> DiscordForm {
     }
 }
 
-/// Recompute the Notifications dirty flag from the live form vs the
-/// loaded snapshot.
+/// Recompute the Notifications dirty flag from the live form vs the loaded snapshot.
 fn refresh_notif_dirty(ui: &App, state: &mut State) {
     let dirty = !state.notif_saved.is_empty()
         && read_notif_form(ui).snapshot() != state.notif_saved;
@@ -580,7 +701,9 @@ fn ensure_wizard(state: &Rc<RefCell<State>>) {
                 wiz.set_wiz_error("".into());
                 wiz.set_wiz_scan_note("".into());
             }
-            st.cmd_tx.send(Cmd::ScanWorkdir(dir)).ok();
+            st.cmd_tx
+                .send(Cmd::ScanWorkdir(LOCAL_NODE_ID.to_string(), dir))
+                .ok();
         });
     }
     {
@@ -608,8 +731,9 @@ fn ensure_wizard(state: &Rc<RefCell<State>>) {
             let autostart = wiz.get_wiz_autostart();
             let _ = wiz;
             let existing: Vec<String> = st
-                .instances
-                .iter()
+                .instances_by_node
+                .values()
+                .flatten()
                 .map(|i| i.id.clone())
                 .collect();
             let form = WizardForm {
@@ -678,17 +802,88 @@ fn open_wizard(state: &Rc<RefCell<State>>) {
     }
 }
 
+/// Create (once) the nodes window: the Add/Remove remote-node panel.
+fn ensure_nodes_window(state: &Rc<RefCell<State>>, ui: &App) {
+    if state.borrow().nodes_window.is_some() {
+        return;
+    }
+    let window = NodesWindow::new().expect("create nodes window");
+    let ui_weak = ui.as_weak();
+    {
+        let state = state.clone();
+        window.on_add_node(move |name, url, token| {
+            let _ = state
+                .borrow_mut()
+                .cmd_tx
+                .send(Cmd::AddNode {
+                    name: name.to_string(),
+                    url: url.to_string(),
+                    token: token.to_string(),
+                });
+            let st = state.borrow();
+            if let Some(w) = st.nodes_window.as_ref() {
+                w.set_new_name("".into());
+                w.set_new_url("".into());
+                w.set_new_token("".into());
+                w.set_nodes_error("".into());
+            }
+        });
+    }
+    {
+        window.on_remove_node(move |id| {
+            let id = id.to_string();
+            let Some(ui) = ui_weak.upgrade() else { return };
+            ui.set_confirm_title(format!("Remove node '{id}'?").into());
+            ui.set_confirm_text(
+                "Removing a node forgets its registry entry. The daemon itself keeps running. Continue?"
+                    .into(),
+            );
+            ui.set_confirm_action("remove-node".into());
+            ui.set_confirm_id(id.into());
+            ui.set_confirm_open(true);
+        });
+    }
+    {
+        let state = state.clone();
+        window.on_retry_node(move |id| {
+            let _ = state
+                .borrow_mut()
+                .cmd_tx
+                .send(Cmd::ProbeNode(id.to_string()));
+        });
+    }
+    state.borrow_mut().nodes_window = Some(window);
+}
+
+fn open_nodes_window(state: &Rc<RefCell<State>>, ui: &App) {
+    ensure_nodes_window(state, ui);
+    let result = {
+        let st = state.borrow();
+        let model: ModelRc<NodeRow> = st.node_model.clone().into();
+        let win = st.nodes_window.as_ref().expect("nodes window exists");
+        win.set_nodes(model);
+        win.set_nodes_error("".into());
+        win.show()
+    };
+    if let Err(e) = result {
+        eprintln!("minewrap-gui: show nodes window: {e}");
+    }
+}
+
 fn main() -> Result<(), slint::PlatformError> {
     eprintln!("START minewrap-gui");
 
     // --- daemon discovery + auto-spawn (blocking, bounded ~11 s) ---
     let config_path = daemon::default_config_path();
-    let settings = daemon::load_settings(&config_path);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("tokio runtime");
-    let startup = daemon::ensure_daemon(&runtime, &config_path, &settings);
+    let svc = Arc::new(
+        NodeService::load(&config_path.to_string_lossy())
+            .map_err(|e| slint::PlatformError::Other(e.to_string()))?,
+    );
+    let startup = daemon::ensure_daemon(&runtime, &config_path, &svc.local);
     let startup_note = match &startup {
         daemon::Startup::AlreadyRunning => "daemon already running".to_string(),
         daemon::Startup::Spawned => "daemon started".to_string(),
@@ -696,43 +891,45 @@ fn main() -> Result<(), slint::PlatformError> {
     };
     eprintln!(
         "minewrap-gui: {startup_note} ({}:{} · data {})",
-        settings.host, settings.port, settings.data_dir
+        svc.local.host, svc.local.port, svc.local.data_dir
     );
 
-    let token = daemon::read_token(&settings.data_dir);
+    let token = daemon::read_token(&svc.local.data_dir);
     if token.is_empty() {
         eprintln!(
             "minewrap-gui: no token at {}/token — API calls will be 401",
-            settings.data_dir
+            svc.local.data_dir
         );
     }
-    let client = RemoteClient::new(daemon::base_url(&settings), token);
 
     // --- UI + models ---
     let ui = App::new()?;
     let line_model = Rc::new(VecModel::from(Vec::<LogLine>::new()));
-    let inst_model = Rc::new(VecModel::from(Vec::<InstRow>::new()));
+    let node_model: Rc<VecModel<NodeRow>> = Rc::new(VecModel::<NodeRow>::default());
     ui.set_lines(line_model.clone().into());
-    ui.set_instances(inst_model.clone().into());
+    ui.set_nodes(node_model.clone().into());
     ui.set_daemon_ok(false);
     ui.set_daemon_info("connecting…".into());
     ui.set_status(startup_note.clone().into());
 
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
-    let (sel_tx, sel_rx) = watch::channel(None::<String>);
+    let (sel_tx, sel_rx) = watch::channel(None::<(String, String)>);
     let (msg_tx, msg_rx) = std::sync::mpsc::channel::<UiMsg>();
 
     let state = Rc::new(RefCell::new(State {
         ring: Ring::new(),
         pending: VecDeque::new(),
-        instances: Vec::new(),
+        instances_by_node: HashMap::new(),
         selected: None,
+        selected_node: None,
         line_model: line_model.clone(),
-        inst_model: inst_model.clone(),
+        nodes: Vec::new(),
+        node_model,
         cmd_tx,
         sel_tx,
         clipboard: None,
         wizard: None,
+        nodes_window: None,
         settings_saved: String::new(),
         settings_dirty: false,
         properties_saved: String::new(),
@@ -749,21 +946,32 @@ fn main() -> Result<(), slint::PlatformError> {
         mods_filter: String::new(),
     }));
 
-    runtime::spawn(runtime, client, sel_rx, cmd_rx, msg_tx);
+    runtime::spawn(runtime, svc, sel_rx, cmd_rx, msg_tx);
 
     let ui_weak = ui.as_weak();
     {
         let state = state.clone();
         let ui_weak = ui_weak.clone();
-        ui.on_pick(move |idx| {
+        ui.on_pick_node(move |id| {
             let state = state.clone();
             let ui_weak = ui_weak.clone();
             let Some(ui) = ui_weak.upgrade() else { return };
+            let id = id.to_string();
             let mut st = state.borrow_mut();
-            let idx = idx.max(0) as usize;
-            let target = st.instances.get(idx).map(|i| i.id.clone());
+            st.pick_node(&ui, &id);
+        });
+    }
+    {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_pick_inst(move |id| {
+            let state = state.clone();
+            let ui_weak = ui_weak.clone();
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let id = id.to_string();
+            let mut st = state.borrow_mut();
             if st.panel_dirty() {
-                st.pending_switch = target.clone();
+                st.pending_switch = Some(id.clone());
                 let (title, text, action) = dirty_panel(&st);
                 ui.set_confirm_title(title.into());
                 ui.set_confirm_text(text.into());
@@ -771,9 +979,11 @@ fn main() -> Result<(), slint::PlatformError> {
                 ui.set_confirm_open(true);
                 return;
             }
-            if let Some(id) = target {
-                st.select(&ui, &id);
-            }
+            let node = match resolve_node(&st, &id) {
+                Some(n) => n,
+                None => return,
+            };
+            st.select(&ui, &node, &id);
         });
     }
     {
@@ -784,19 +994,25 @@ fn main() -> Result<(), slint::PlatformError> {
             let ui_weak = ui_weak.clone();
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = state.borrow_mut();
-            let n = st.instances.len();
+            let flat: Vec<String> = st
+                .instances_by_node
+                .values()
+                .flatten()
+                .map(|i| i.id.clone())
+                .collect();
+            let n = flat.len();
             if n == 0 {
                 return;
             }
             let current = st
                 .selected
                 .as_deref()
-                .and_then(|id| st.instances.iter().position(|i| i.id == id))
+                .and_then(|id| flat.iter().position(|x| x == id))
                 .unwrap_or(0) as i64;
             let next = (current + delta as i64).rem_euclid(n as i64) as usize;
-            let target = st.instances[next].id.clone();
+            let id = flat[next].clone();
             if st.panel_dirty() {
-                st.pending_switch = Some(target.clone());
+                st.pending_switch = Some(id.clone());
                 let (title, text, action) = dirty_panel(&st);
                 ui.set_confirm_title(title.into());
                 ui.set_confirm_text(text.into());
@@ -804,7 +1020,11 @@ fn main() -> Result<(), slint::PlatformError> {
                 ui.set_confirm_open(true);
                 return;
             }
-            st.select(&ui, &target);
+            let node = match resolve_node(&st, &id) {
+                Some(n) => n,
+                None => return,
+            };
+            st.select(&ui, &node, &id);
         });
     }
     {
@@ -812,7 +1032,17 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_control(move |action| {
             let state = state.clone();
             let st = state.borrow();
-            st.cmd_tx.send(Cmd::Control(action.to_string())).ok();
+            let id = st.selected.as_deref().unwrap_or("").to_string();
+            let node = st.selected_node.as_deref().unwrap_or("").to_string();
+            drop(st);
+            if id.is_empty() {
+                return;
+            }
+            state
+                .borrow_mut()
+                .cmd_tx
+                .send(Cmd::Control(node, id, action.to_string()))
+                .ok();
         });
     }
     {
@@ -827,7 +1057,17 @@ fn main() -> Result<(), slint::PlatformError> {
                 return;
             }
             let st = state.borrow();
-            st.cmd_tx.send(Cmd::SendCommand(text)).ok();
+            let id = st.selected.as_deref().unwrap_or("").to_string();
+            let node = st.selected_node.as_deref().unwrap_or("").to_string();
+            drop(st);
+            if id.is_empty() {
+                return;
+            }
+            state
+                .borrow_mut()
+                .cmd_tx
+                .send(Cmd::SendCommand(node, id, text))
+                .ok();
             ui.set_cmd_text("".into());
         });
     }
@@ -846,10 +1086,25 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
     {
+        let state = state.clone();
+        let ui_weak = ui_weak.clone();
+        ui.on_add_node(move || {
+            let state = state.clone();
+            let ui_weak = ui_weak.clone();
+            let Some(ui) = ui_weak.upgrade() else { return };
+            open_nodes_window(&state, &ui);
+        });
+    }
+    {
+        let state = state.clone();
         let ui_weak = ui_weak.clone();
         ui.on_remove_instance(move |id| {
             let ui_weak = ui_weak.clone();
             let Some(ui) = ui_weak.upgrade() else { return };
+            let state = state.clone();
+            let st = state.borrow();
+            let node = st.selected_node.as_deref().unwrap_or("").to_string();
+            drop(st);
             ui.set_confirm_title(format!("Remove instance '{id}'?").into());
             ui.set_confirm_text(
                 "The server process will be stopped and the instance deleted. This cannot be undone."
@@ -857,6 +1112,7 @@ fn main() -> Result<(), slint::PlatformError> {
             );
             ui.set_confirm_action("remove".into());
             ui.set_confirm_id(id.into());
+            ui.set_confirm_node(node.into());
             ui.set_confirm_open(true);
         });
     }
@@ -880,6 +1136,8 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let st = state.borrow();
             let id = st.selected.as_deref().unwrap_or("").to_string();
+            let node = st.selected_node.as_deref().unwrap_or("").to_string();
+            drop(st);
             if id.is_empty() {
                 return;
             }
@@ -889,7 +1147,11 @@ fn main() -> Result<(), slint::PlatformError> {
                 return;
             }
             let patch = form.to_patch();
-            st.cmd_tx.send(Cmd::UpdateConfig(id, patch)).ok();
+            state
+                .borrow_mut()
+                .cmd_tx
+                .send(Cmd::UpdateConfig(node, id, patch))
+                .ok();
         });
     }
     {
@@ -900,8 +1162,8 @@ fn main() -> Result<(), slint::PlatformError> {
             let ui_weak = ui_weak.clone();
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = state.borrow_mut();
-            if let Some(id) = st.selected.clone() {
-                load_settings(&ui, &mut st, &id);
+            if let Some((node, id)) = selection(&st) {
+                load_settings(&ui, &mut st, &node, &id);
             }
         });
     }
@@ -920,7 +1182,13 @@ fn main() -> Result<(), slint::PlatformError> {
             st.scan_target = Some("settings".into());
             ui.set_settings_scan_note("".into());
             ui.set_settings_error("".into());
-            st.cmd_tx.send(Cmd::ScanWorkdir(dir)).ok();
+            let node = st.selected_node.as_deref().unwrap_or("").to_string();
+            drop(st);
+            state
+                .borrow_mut()
+                .cmd_tx
+                .send(Cmd::ScanWorkdir(node, dir))
+                .ok();
         });
     }
     {
@@ -943,13 +1211,16 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let st = state.borrow();
             let id = st.selected.as_deref().unwrap_or("").to_string();
+            let node = st.selected_node.as_deref().unwrap_or("").to_string();
             drop(st);
             if id.is_empty() {
                 return;
             }
             let st = state.borrow_mut();
             let text = ui.get_properties_text().to_string();
-            st.cmd_tx.send(Cmd::WriteProperties(id, text)).ok();
+            st.cmd_tx
+                .send(Cmd::WriteProperties(node, id, text))
+                .ok();
             ui.set_properties_loading(true);
         });
     }
@@ -961,8 +1232,8 @@ fn main() -> Result<(), slint::PlatformError> {
             let ui_weak = ui_weak.clone();
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = state.borrow_mut();
-            if let Some(id) = st.selected.clone() {
-                load_properties(&ui, &mut st, &id);
+            if let Some((node, id)) = selection(&st) {
+                load_properties(&ui, &mut st, &node, &id);
             }
         });
     }
@@ -988,13 +1259,16 @@ fn main() -> Result<(), slint::PlatformError> {
             let name = name.to_string();
             let mut st = state.borrow_mut();
             let id = st.selected.as_deref().unwrap_or("").to_string();
+            let node = st.selected_node.as_deref().unwrap_or("").to_string();
             if id.is_empty() {
                 return;
             }
             st.mods_toggled_name = name.clone();
             ui.set_mods_busy(name.clone().into());
             let current = st.mods.iter().find(|m| m.name == name).map(|m| m.enabled).unwrap_or(false);
-            st.cmd_tx.send(Cmd::ToggleMod(id, name, !current)).ok();
+            st.cmd_tx
+                .send(Cmd::ToggleMod(node, id, name, !current))
+                .ok();
         });
     }
     {
@@ -1017,6 +1291,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let st = state.borrow();
             let id = st.selected.as_deref().unwrap_or("").to_string();
+            let node = st.selected_node.as_deref().unwrap_or("").to_string();
             drop(st);
             if id.is_empty() {
                 return;
@@ -1028,7 +1303,9 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             let st = state.borrow_mut();
             let patch = serde_json::json!({ "discord": form.to_patch() });
-            st.cmd_tx.send(Cmd::NotifSave(id, patch)).ok();
+            st.cmd_tx
+                .send(Cmd::NotifSave(node, id, patch))
+                .ok();
             ui.set_notif_saving(true);
         });
     }
@@ -1040,8 +1317,8 @@ fn main() -> Result<(), slint::PlatformError> {
             let ui_weak = ui_weak.clone();
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = state.borrow_mut();
-            if let Some(id) = st.selected.clone() {
-                load_notifications(&ui, &mut st, &id);
+            if let Some((node, id)) = selection(&st) {
+                load_notifications(&ui, &mut st, &node, &id);
             }
         });
     }
@@ -1054,12 +1331,13 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let st = state.borrow();
             let id = st.selected.as_deref().unwrap_or("").to_string();
+            let node = st.selected_node.as_deref().unwrap_or("").to_string();
             drop(st);
             if id.is_empty() {
                 return;
             }
             let st = state.borrow_mut();
-            st.cmd_tx.send(Cmd::DiscordTest(id)).ok();
+            st.cmd_tx.send(Cmd::DiscordTest(node, id)).ok();
             ui.set_notif_sending(true);
             ui.set_notif_result("".into());
         });
@@ -1115,23 +1393,23 @@ fn main() -> Result<(), slint::PlatformError> {
                         ui.set_confirm_open(true);
                         return;
                     }
-                    if let Some(id) = st.selected.clone() {
-                        load_settings(&ui, &mut st, &id);
+                    if let Some((node, id)) = selection(&st) {
+                        load_settings(&ui, &mut st, &node, &id);
                     }
                 }
                 2 => {
-                    if let Some(id) = st.selected.clone() {
-                        load_properties(&ui, &mut st, &id);
+                    if let Some((node, id)) = selection(&st) {
+                        load_properties(&ui, &mut st, &node, &id);
                     }
                 }
                 3 => {
-                    if let Some(id) = st.selected.clone() {
-                        load_mods(&ui, &mut st, &id);
+                    if let Some((node, id)) = selection(&st) {
+                        load_mods(&ui, &mut st, &node, &id);
                     }
                 }
                 4 => {
-                    if let Some(id) = st.selected.clone() {
-                        load_notifications(&ui, &mut st, &id);
+                    if let Some((node, id)) = selection(&st) {
+                        load_notifications(&ui, &mut st, &node, &id);
                     }
                 }
                 _ => {}
@@ -1151,7 +1429,13 @@ fn main() -> Result<(), slint::PlatformError> {
             let target = ui.get_confirm_id().to_string();
             match action.as_str() {
                 "remove" => {
-                    st.cmd_tx.send(Cmd::RemoveInstance(target)).ok();
+                    let node = ui.get_confirm_node().to_string();
+                    st.cmd_tx
+                        .send(Cmd::RemoveInstance(node, target))
+                        .ok();
+                }
+                "remove-node" => {
+                    st.cmd_tx.send(Cmd::RemoveNode(target)).ok();
                 }
                 "discard-settings" => {
                     st.settings_dirty = false;
@@ -1204,8 +1488,19 @@ fn main() -> Result<(), slint::PlatformError> {
                 messages.push(msg);
             }
             for msg in messages {
+                let is_error = matches!(&msg, UiMsg::Error(_));
                 match msg {
                     UiMsg::Instances(list) => st.apply_instances(&ui, list),
+                    UiMsg::NodeState(node_id, state_) => {
+                        if let Some(pos) = st.nodes.iter().position(|n| n.id == node_id) {
+                            let (label, code) = nodes::node_state_summary(state_);
+                            let mut row = st.nodes[pos].clone();
+                            row.state = label.into();
+                            row.code = code;
+                            st.nodes[pos] = row;
+                            st.node_model.set_vec(st.nodes.clone());
+                        }
+                    }
                     UiMsg::Health(Ok(health)) => {
                         ui.set_daemon_ok(true);
                         ui.set_daemon_info(
@@ -1237,7 +1532,16 @@ fn main() -> Result<(), slint::PlatformError> {
                             }
                         }
                     }
-                    UiMsg::Notice(text) | UiMsg::Error(text) => ui.set_status(text.into()),
+                    UiMsg::Notice(text) | UiMsg::Error(text) => {
+                        ui.set_status(text.clone().into());
+                        if let Some(win) = st.nodes_window.as_ref() {
+                            if is_error {
+                                win.set_nodes_error(text.clone().into());
+                            } else {
+                                win.set_nodes_error("".into());
+                            }
+                        }
+                    }
                     UiMsg::InstanceAdded(Ok(())) => {
                         if let Some(wiz) = &st.wizard {
                             let _ = wiz.hide();
@@ -1337,6 +1641,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         st.properties_dirty = false;
                         ui.set_properties_dirty(false);
                         ui.set_properties_error("".into());
+                        ui.set_properties_loading(false);
                         ui.set_properties_status("Saved.".into());
                     }
                     UiMsg::PropertiesSaved(Err(e)) => {
@@ -1365,7 +1670,8 @@ fn main() -> Result<(), slint::PlatformError> {
                         let what = if enabled { "enabled" } else { "disabled" };
                         ui.set_mods_status(format!("{name} {what}.").into());
                         if let Some(id) = st.selected.clone() {
-                            st.cmd_tx.send(Cmd::ListMods(id)).ok();
+                            let node = st.selected_node.clone().unwrap_or_default();
+                            st.cmd_tx.send(Cmd::ListMods(node, id)).ok();
                         }
                     }
                     UiMsg::ModsToggled(Err(e)) => {
@@ -1553,9 +1859,6 @@ fn parse_scan(value: &serde_json::Value) -> ScanResult {
                 picked = Some(obj);
                 break;
             }
-        }
-        if picked.is_none() {
-            picked = cands.first().and_then(|c| c.as_object());
         }
         if let Some(obj) = picked {
             if let Some(args) = obj
