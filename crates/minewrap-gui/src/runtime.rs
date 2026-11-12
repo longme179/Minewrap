@@ -11,7 +11,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use minewrap_remote::RemoteClient;
 use minewrap_remote::types::{
-    HealthResponse, InstanceSummaryDto, JavaRuntimeDto, LogLineDto,
+    DiscordTestResponse, HealthResponse, InstanceSummaryDto, JavaRuntimeDto, LogLineDto, ModDto,
 };
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
@@ -29,8 +29,20 @@ pub enum Cmd {
     RemoveInstance(String),
     /// `GET …/config`.
     GetConfig(String),
-    /// `PUT …/config` patch.
+    /// `PUT …/config` patch (Settings panel).
     UpdateConfig(String, Value),
+    /// `GET …/properties`.
+    GetProperties(String),
+    /// `PUT …/properties` body.
+    WriteProperties(String, String),
+    /// `GET …/mods`.
+    ListMods(String),
+    /// `POST …/mods/toggle` (third arg: the new enabled state to echo back).
+    ToggleMod(String, String, bool),
+    /// `PUT …/config` patch (Notifications panel, `discord` group only).
+    NotifSave(String, Value),
+    /// `POST …/discord/test`.
+    DiscordTest(String),
     /// `GET /api/v1/java`.
     DetectJava,
     /// `POST /api/v1/scan-workdir`.
@@ -55,8 +67,20 @@ pub enum UiMsg {
     InstanceRemoved(Result<String, String>),
     /// Result of `get_config` — raw `instance_view` JSON.
     ConfigFetched(Result<Value, String>),
-    /// Result of `update_config`.
+    /// Result of `update_config` (Settings panel).
     ConfigSaved(Result<(), String>),
+    /// Result of `GET …/properties`.
+    PropertiesFetched(Result<Value, String>),
+    /// Result of `PUT …/properties`.
+    PropertiesSaved(Result<(), String>),
+    /// Result of `GET …/mods`.
+    ModsFetched(Result<Vec<ModDto>, String>),
+    /// Result of `POST …/mods/toggle` (carries the new enabled state).
+    ModsToggled(Result<bool, String>),
+    /// Result of `PUT …/config` (Notifications panel).
+    NotifSaved(Result<(), String>),
+    /// Result of `POST …/discord/test`.
+    DiscordTestFetched(Result<DiscordTestResponse, String>),
     /// Result of `detect_java`.
     JavaRuntimes(Result<Vec<JavaRuntimeDto>, String>),
     /// Result of `scan_workdir`.
@@ -341,6 +365,63 @@ async fn command_loop(
                 }
                 Err(e) => {
                     let _ = tx.send(UiMsg::WorkDirScan(Err(format!("scan workdir: {e}"))));
+                }
+            },
+            Cmd::GetProperties(ref id) => match client.read_properties(id).await {
+                Ok(doc) => {
+                    let v = serde_json::json!({ "text": doc.text, "errors": doc.errors });
+                    let _ = tx.send(UiMsg::PropertiesFetched(Ok(v)));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiMsg::PropertiesFetched(Err(format!(
+                        "read properties: {e}"
+                    ))));
+                }
+            },
+            Cmd::WriteProperties(ref id, ref text) => match client.write_properties(id, text).await
+            {
+                Ok(_) => {
+                    let _ = tx.send(UiMsg::PropertiesSaved(Ok(())));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiMsg::PropertiesSaved(Err(format!(
+                        "write properties: {e}"
+                    ))));
+                }
+            },
+            Cmd::ListMods(ref id) => match client.list_mods(id).await {
+                Ok(list) => {
+                    let _ = tx.send(UiMsg::ModsFetched(Ok(list)));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiMsg::ModsFetched(Err(format!("list mods: {e}"))));
+                }
+            },
+            Cmd::ToggleMod(ref id, ref name, enabled) => match client.toggle_mod(id, name).await {
+                Ok(_) => {
+                    let _ = tx.send(UiMsg::ModsToggled(Ok(enabled)));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiMsg::ModsToggled(Err(format!("toggle mod: {e}"))));
+                }
+            },
+            Cmd::NotifSave(ref id, ref patch) => match client.update_config(id, patch.clone()).await
+            {
+                Ok(_) => {
+                    let _ = tx.send(UiMsg::NotifSaved(Ok(())));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiMsg::NotifSaved(Err(format!("update config: {e}"))));
+                }
+            },
+            Cmd::DiscordTest(ref id) => match client.discord_test(id).await {
+                Ok(r) => {
+                    let _ = tx.send(UiMsg::DiscordTestFetched(Ok(r)));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiMsg::DiscordTestFetched(Err(format!(
+                        "discord test: {e}"
+                    ))));
                 }
             },
         }

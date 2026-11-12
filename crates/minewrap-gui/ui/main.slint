@@ -25,14 +25,23 @@ export struct InstRow {
                    // 4 crashed, 5 unresponsive, 6 unknown
 }
 
-global Tok {
+export struct ModRow {
+    name: string,
+    size: string,
+    enabled: bool,
+}
+
+export global Theme {
+    // --- colors (values unchanged from the previous hard-coded literals) ---
     out property <color> bg: #0f172a;
     out property <color> fg: #f8fafc;
     out property <color> card: #1b2336;
+    out property <color> card-hover: #1f2940;
     out property <color> muted: #272f42;
     out property <color> muted-fg: #94a3b8;
     out property <color> border: #475569;
     out property <color> accent: #22c55e;
+    out property <color> accent-text: #ffffff;
     out property <color> err: #ef4444;
     out property <color> warn: #f59e0b;
     out property <color> debug: #38bdf8;
@@ -40,6 +49,56 @@ global Tok {
     out property <color> offline: #64748b;
     out property <color> crashed: #ef4444;
     out property <color> selection: #334155;
+    out property <color> backdrop: #000000aa;
+
+    // --- spacing / sizing ---
+    out property <length> hairline: 1px;
+    out property <length> divider: 2px;
+    out property <length> vsep: 14px;
+    out property <length> radius-xs: 4px;
+    out property <length> radius-sm: 6px;
+    out property <length> radius-md: 8px;
+    out property <length> space-6: 6px;
+    out property <length> space-8: 8px;
+    out property <length> space-10: 10px;
+    out property <length> space-12: 12px;
+    out property <length> space-16: 16px;
+    out property <length> space-18: 18px;
+    out property <length> space-20: 20px;
+    out property <length> space-24: 24px;
+    out property <length> h-24: 24px;
+    out property <length> h-26: 26px;
+    out property <length> h-28: 28px;
+    out property <length> h-32: 32px;
+    out property <length> h-40: 40px;
+    out property <length> h-44: 44px;
+    out property <length> h-90: 90px;
+    out property <length> h-100: 100px;
+    out property <length> overlay-y: 92px;
+    out property <length> line-h: 22px;
+    out property <length> w-62: 62px;
+    out property <length> w-72: 72px;
+    out property <length> w-88: 88px;
+    out property <length> w-120: 120px;
+    out property <length> w-210: 210px;
+    out property <length> w-220: 220px;
+    out property <length> w-240: 240px;
+    out property <length> w-420: 420px;
+    out property <length> h-200: 200px;
+    out property <length> win-w: 1280px;
+    out property <length> win-h: 800px;
+    out property <length> topbar-h: 40px;
+    out property <length> tabs-h: 28px;
+    out property <length> wiz-min-w: 720px;
+    out property <length> wiz-min-h: 660px;
+
+    // --- font sizes ---
+    out property <length> text-xs: 8pt;
+    out property <length> text-sm: 9pt;
+    out property <length> text-base: 10pt;
+    out property <length> text-lg: 11pt;
+    out property <length> text-xl: 12pt;
+    out property <length> text-wizard: 13pt;
 }
 
 component TokBtn inherits Rectangle {
@@ -48,13 +107,13 @@ component TokBtn inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> danger: false;
     callback clicked;
-    height: 26px;
-    width: max(72px, lbl.preferred-width + 20px);
-    border-radius: 6px;
-    border-width: 1px;
-    border-color: !root.enabled ? Tok.muted
-        : (root.danger ? Tok.err : (root.active ? Tok.accent : Tok.border));
-    background: (!root.enabled || !ta.has-hover) ? Tok.card : Tok.muted;
+    height: Theme.h-26;
+    width: max(Theme.w-72, lbl.preferred-width + Theme.space-20);
+    border-radius: Theme.space-6;
+    border-width: Theme.hairline;
+    border-color: !root.enabled ? Theme.muted
+        : (root.danger ? Theme.err : (root.active ? Theme.accent : Theme.border));
+    background: (!root.enabled || !ta.has-hover) ? Theme.card : Theme.muted;
     ta := TouchArea {
         clicked => {
             if (root.enabled) {
@@ -64,8 +123,8 @@ component TokBtn inherits Rectangle {
     }
     lbl := Text {
         text: root.label;
-        color: !root.enabled ? Tok.muted-fg : (root.active ? Tok.accent : (root.danger ? Tok.err : Tok.fg));
-        font-size: 10pt;
+        color: !root.enabled ? Theme.muted-fg : (root.active ? Theme.accent : (root.danger ? Theme.err : Theme.fg));
+        font-size: Theme.text-base;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -78,36 +137,36 @@ component InstanceRow inherits Rectangle {
     in property <int> code: 3;
     in property <bool> selected: false;
     callback picked;
-    height: 44px;
-    border-radius: 6px;
-    background: root.selected ? Tok.muted : (ta.has-hover ? #1f2940 : transparent);
+    height: Theme.h-44;
+    border-radius: Theme.space-6;
+    background: root.selected ? Theme.muted : (ta.has-hover ? Theme.card-hover : transparent);
     HorizontalLayout {
-        padding-left: 8px;
-        padding-right: 8px;
-        spacing: 8px;
+        padding-left: Theme.space-8;
+        padding-right: Theme.space-8;
+        spacing: Theme.space-8;
         Rectangle {
-            width: 8px;
-            height: 8px;
-            border-radius: 4px;
-            background: root.code == 0 ? Tok.online
-                : root.code == 1 || root.code == 2 ? Tok.warn
-                : root.code == 4 || root.code == 5 ? Tok.crashed
-                : Tok.offline;
+            width: Theme.space-8;
+            height: Theme.space-8;
+            border-radius: Theme.radius-xs;
+            background: root.code == 0 ? Theme.online
+                : root.code == 1 || root.code == 2 ? Theme.warn
+                : root.code == 4 || root.code == 5 ? Theme.crashed
+                : Theme.offline;
         }
         VerticalLayout {
             alignment: center;
-            spacing: 1px;
+            spacing: Theme.hairline;
             horizontal-stretch: 1;
             Text {
                 text: root.name;
-                color: Tok.fg;
-                font-size: 10pt;
+                color: Theme.fg;
+                font-size: Theme.text-base;
                 overflow: elide;
             }
             Text {
                 text: root.id + " · " + root.state;
-                color: Tok.muted-fg;
-                font-size: 8pt;
+                color: Theme.muted-fg;
+                font-size: Theme.text-xs;
                 overflow: elide;
             }
         }
@@ -118,8 +177,8 @@ component InstanceRow inherits Rectangle {
 component ErrorText inherits Text {
     in property <string> content: "";
     text: root.content;
-    color: #ef4444;
-    font-size: 9pt;
+    color: Theme.err;
+    font-size: Theme.text-sm;
     overflow: elide;
 }
 
@@ -128,12 +187,12 @@ component Btn2 inherits Rectangle {
     in property <bool> primary: false;
     in property <bool> enabled: true;
     callback clicked;
-    height: 32px;
-    width: max(88px, txt.preferred-width + 24px);
-    border-radius: 6px;
-    border-width: 1px;
-    border-color: !root.enabled ? #475569 : (root.primary ? #22c55e : #475569);
-    background: (!root.enabled || root.primary) ? #1f2940 : #1b2336;
+    height: Theme.h-32;
+    width: max(Theme.w-88, txt.preferred-width + Theme.space-24);
+    border-radius: Theme.space-6;
+    border-width: Theme.hairline;
+    border-color: !root.enabled ? Theme.border : (root.primary ? Theme.accent : Theme.border);
+    background: (!root.enabled || root.primary) ? Theme.card-hover : Theme.card;
     ta := TouchArea {
         clicked => {
             if (root.enabled) {
@@ -143,20 +202,20 @@ component Btn2 inherits Rectangle {
     }
     txt := Text {
         text: root.label;
-        color: !root.enabled ? #94a3b8 : (root.primary ? #ffffff : #f8fafc);
-        font-size: 10pt;
+        color: !root.enabled ? Theme.muted-fg : (root.primary ? Theme.accent-text : Theme.fg);
+        font-size: Theme.text-base;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
 }
 
 export component App inherits Window {
-    width: 1280px;
+    width: Theme.win-w;
     height: 800px;
     title: "Minewrap";
-    background: Tok.bg;
+    background: Theme.bg;
     default-font-family: "Noto Sans";
-    default-font-size: 10pt;
+    default-font-size: Theme.text-base;
 
     in-out property <[InstRow]> instances;
     in-out property <[LogLine]> lines;
@@ -174,7 +233,7 @@ export component App inherits Window {
     in-out property <string> cmd-text: "";
 
     // --- navigation ---
-    in-out property <int> settings-tab: 0; // 0 console, 1 settings
+    in-out property <int> settings-tab: 0; // 0 console, 1 settings, 2 properties, 3 mods, 4 notifications
 
     // --- Settings panel (bound two-way by the form widgets) ---
     in-out property <string> settings-name: "";
@@ -205,6 +264,45 @@ export component App inherits Window {
     in-out property <bool> settings-dirty: false;
     in-out property <bool> settings-loading: false;
 
+    // --- Properties panel (raw server.properties editor) ---
+    in-out property <string> properties-text: "";
+    in-out property <string> properties-error: "";
+    in-out property <string> properties-status: "";
+    in-out property <bool> properties-dirty: false;
+    in-out property <bool> properties-loading: false;
+
+    // --- Mods panel ---
+    in-out property <[ModRow]> mods: [];
+    in-out property <[ModRow]> mods-filtered: [];
+    in-out property <string> mods-filter: "";
+    in-out property <string> mods-busy: "";
+    in-out property <string> mods-status: "";
+    in-out property <string> mods-count: "";
+    in-out property <bool> mods-empty: false;
+    in-out property <bool> mods-loading: false;
+
+    // --- Notifications panel (Discord) ---
+    in-out property <bool> notif-enabled: false;
+    in-out property <string> notif-mode: "edit-in-place";
+    in-out property <string> notif-interval: "600";
+    in-out property <string> notif-first-push: "10";
+    in-out property <string> notif-log-lines: "15";
+    in-out property <string> notif-max-log-chars: "1500";
+    in-out property <bool> notif-state-change-posts: true;
+    in-out property <string> notif-state-change-debounce: "30";
+    in-out property <string> notif-redact: "";
+    in-out property <bool> notif-webhook-set: false;
+    in-out property <string> notif-webhook: "";
+    in-out property <string> notif-result: "";
+    in-out property <bool> notif-result-ok: false;
+    in-out property <bool> notif-saving: false;
+    in-out property <bool> notif-sending: false;
+    in-out property <bool> notif-loaded: false;
+    in-out property <string> notif-load-error: "";
+    in-out property <string> notif-error: "";
+    in-out property <bool> notif-dirty: false;
+    in-out property <string> notif-status: "";
+
     // --- confirm dialog (remove / discard) ---
     in-out property <bool> confirm-open: false;
     in-out property <string> confirm-title: "";
@@ -223,18 +321,27 @@ export component App inherits Window {
     callback settings-save();
     callback settings-revert();
     callback settings-scan-workdir();
-    callback settings-tab-activated();
+    callback properties-touched();
+    callback properties-save();
+    callback properties-revert();
+    callback mods-touched();
+    callback mods-toggle(string, bool);
+    callback notif-touched();
+    callback notif-save();
+    callback notif-revert();
+    callback notif-test();
+    callback navigate-tab(int);
     callback confirm-yes();
     callback confirm-no();
 
     pure function level-color(level: int) -> color {
-        return level == 1 ? Tok.warn : level == 2 ? Tok.err : level == 3 ? Tok.debug : Tok.fg;
+        return level == 1 ? Theme.warn : level == 2 ? Theme.err : level == 3 ? Theme.debug : Theme.fg;
     }
     pure function state-color(code: int) -> color {
-        return code == 0 ? Tok.online
-            : code == 1 || code == 2 ? Tok.warn
-            : code == 4 || code == 5 ? Tok.crashed
-            : Tok.offline;
+        return code == 0 ? Theme.online
+            : code == 1 || code == 2 ? Theme.warn
+            : code == 4 || code == 5 ? Theme.crashed
+            : Theme.offline;
     }
     pure function can-start(code: int) -> bool {
         return code == 3 || code == 4 || code == 6;
@@ -244,7 +351,7 @@ export component App inherits Window {
     }
     pure function row-at(y: length) -> int {
         return root.lines.length == 0 ? -1
-            : clamp(floor((y - lv.content-y) / 1px / 22), 0, root.lines.length - 1);
+            : clamp(floor((y - lv.content-y) / Theme.hairline / 22), 0, root.lines.length - 1);
     }
 
     fs := FocusScope {
@@ -265,12 +372,12 @@ export component App inherits Window {
             }
             if (event.text == Key.PageUp) {
                 lv.content-y = clamp(lv.content-y + lv.visible-height, min(0px, lv.visible-height - lv.content-height), 0px);
-                root.stick = lv.content-y <= lv.visible-height - lv.content-height + 2px;
+                root.stick = lv.content-y <= lv.visible-height - lv.content-height + Theme.divider;
                 return accept;
             }
             if (event.text == Key.PageDown) {
                 lv.content-y = clamp(lv.content-y - lv.visible-height, min(0px, lv.visible-height - lv.content-height), 0px);
-                root.stick = lv.content-y <= lv.visible-height - lv.content-height + 2px;
+                root.stick = lv.content-y <= lv.visible-height - lv.content-height + Theme.divider;
                 return accept;
             }
             if (event.text == Key.End) {
@@ -299,16 +406,16 @@ export component App inherits Window {
                 spacing: 0px;
                 // ---- sidebar: instances ----
                 Rectangle {
-                    width: 240px;
-                    background: Tok.card;
+                    width: Theme.w-240;
+                    background: Theme.card;
                     VerticalLayout {
-                        padding: 10px;
-                        spacing: 6px;
+                        padding: Theme.space-10;
+                        spacing: Theme.space-6;
                         Text {
                             text: "INSTANCES";
-                            color: Tok.muted-fg;
-                            font-size: 8pt;
-                            height: 22px;
+                            color: Theme.muted-fg;
+                            font-size: Theme.text-xs;
+                            height: Theme.line-h;
                         }
                         for inst[j] in root.instances: InstanceRow {
                             id: inst.id;
@@ -323,20 +430,20 @@ export component App inherits Window {
                             label: "+ Add instance";
                             clicked => { root.add-instance(); }
                         }
-                        Rectangle { height: 1px; background: Tok.border; }
+                        Rectangle { height: Theme.hairline; background: Theme.border; }
                         HorizontalLayout {
-                            spacing: 6px;
-                            height: 22px;
+                            spacing: Theme.space-6;
+                            height: Theme.line-h;
                             Rectangle {
-                                width: 8px;
-                                height: 8px;
-                                border-radius: 4px;
-                                background: root.daemon-ok ? Tok.online : Tok.crashed;
+                                width: Theme.space-8;
+                                height: Theme.space-8;
+                                border-radius: Theme.radius-xs;
+                                background: root.daemon-ok ? Theme.online : Theme.crashed;
                             }
                             Text {
                                 text: root.daemon-ok ? "daemon connected" : "daemon offline";
-                                color: Tok.muted-fg;
-                                font-size: 9pt;
+                                color: Theme.muted-fg;
+                                font-size: Theme.text-sm;
                                 vertical-alignment: center;
                             }
                         }
@@ -349,28 +456,28 @@ export component App inherits Window {
                     y: 0;
                     width: parent.width;
                     height: parent.height;
-                    spacing: 8px;
-                    padding-left: 8px;
-                    padding-right: 8px;
-                    padding-top: 8px;
+                    spacing: Theme.space-8;
+                    padding-left: Theme.space-8;
+                    padding-right: Theme.space-8;
+                    padding-top: Theme.space-8;
                     // top bar: selected instance + controls
                     HorizontalLayout {
-                        height: 40px;
-                        spacing: 8px;
-                        Rectangle { width: 2px; }
+                        height: Theme.h-40;
+                        spacing: Theme.space-8;
+                        Rectangle { width: Theme.divider; }
                         VerticalLayout {
                             spacing: 0px;
                             alignment: center;
                             Text {
                                 text: root.instance-name == "" ? "No instance selected" : root.instance-name;
-                                color: Tok.fg;
-                                font-size: 12pt;
+                                color: Theme.fg;
+                                font-size: Theme.text-xl;
                                 overflow: elide;
                             }
                             Text {
                                 text: root.instance-name == "" ? "" : root.instance-state;
                                 color: root.state-color(root.instance-code);
-                                font-size: 8pt;
+                                font-size: Theme.text-xs;
                             }
                         }
                         Rectangle { horizontal-stretch: 1; }
@@ -392,54 +499,64 @@ export component App inherits Window {
                             clicked => { root.remove-instance(root.selected-id); }
                         }
                     }
-                    // tabs: Console / Settings
+                    // tabs: Console / Settings / Properties / Mods / Notifications
                     HorizontalLayout {
-                        height: 28px;
+                        height: Theme.tabs-h;
                         spacing: 0px;
                         TokBtn {
                             label: "Console";
                             active: root.settings-tab == 0;
-                            clicked => {
-                                root.settings-tab = 0;
-                            }
+                            clicked => { root.navigate-tab(0); }
                         }
                         TokBtn {
                             label: "Settings";
                             active: root.settings-tab == 1;
-                            clicked => {
-                                root.settings-tab = 1;
-                                root.settings-tab-activated();
-                            }
+                            clicked => { root.navigate-tab(1); }
+                        }
+                        TokBtn {
+                            label: "Properties";
+                            active: root.settings-tab == 2;
+                            clicked => { root.navigate-tab(2); }
+                        }
+                        TokBtn {
+                            label: "Mods";
+                            active: root.settings-tab == 3;
+                            clicked => { root.navigate-tab(3); }
+                        }
+                        TokBtn {
+                            label: "Notifications";
+                            active: root.settings-tab == 4;
+                            clicked => { root.navigate-tab(4); }
                         }
                         Rectangle { horizontal-stretch: 1; }
                     }
                     // ---- console panel: header/body/stdin as direct layout children (chunk-1 style) ----
                     // console header
                             HorizontalLayout {
-                                height: 24px;
-                                spacing: 8px;
-                                Rectangle { width: 2px; }
+                                height: Theme.space-24;
+                                spacing: Theme.space-8;
+                                Rectangle { width: Theme.divider; }
                                 Text {
                                     text: "Console";
-                                    color: Tok.fg;
-                                    font-size: 11pt;
+                                    color: Theme.fg;
+                                    font-size: Theme.text-lg;
                                     vertical-alignment: center;
                                     horizontal-stretch: 1;
                                 }
                                 Text {
                                     text: root.ws-live ? "live" : "reconnecting…";
-                                    color: root.ws-live ? Tok.accent : Tok.warn;
-                                    font-size: 9pt;
+                                    color: root.ws-live ? Theme.accent : Theme.warn;
+                                    font-size: Theme.text-sm;
                                     vertical-alignment: center;
                                 }
                             }
                             // console body
                             Rectangle {
                                 vertical-stretch: 1;
-                                background: Tok.bg;
-                                border-radius: 6px;
-                                border-width: 1px;
-                                border-color: Tok.border;
+                                background: Theme.bg;
+                                border-radius: Theme.space-6;
+                                border-width: Theme.hairline;
+                                border-color: Theme.border;
                                 clip: true;
 
                                 lv := ListView {
@@ -448,31 +565,31 @@ export component App inherits Window {
                                     width: parent.width;
                                     height: parent.height;
                                     for line[i] in root.lines: Rectangle {
-                                        height: 22px;
+                                        height: Theme.line-h;
                                         width: 100%;
-                                        background: (root.sel-hi >= 0 && i >= min(root.sel-lo, root.sel-hi) && i <= max(root.sel-lo, root.sel-hi)) ? Tok.selection : transparent;
+                                        background: (root.sel-hi >= 0 && i >= min(root.sel-lo, root.sel-hi) && i <= max(root.sel-lo, root.sel-hi)) ? Theme.selection : transparent;
                                         HorizontalLayout {
-                                            padding-left: 8px;
-                                            padding-right: 8px;
-                                            spacing: 8px;
+                                            padding-left: Theme.space-8;
+                                            padding-right: Theme.space-8;
+                                            spacing: Theme.space-8;
                                             Text {
                                                 text: line.ts;
-                                                color: Tok.muted-fg;
-                                                font-size: 10pt;
-                                                width: 72px;
+                                                color: Theme.muted-fg;
+                                                font-size: Theme.text-base;
+                                                width: Theme.w-72;
                                                 vertical-alignment: center;
                                             }
                                             Text {
                                                 text: "[" + line.tag + "]";
                                                 color: root.level-color(line.level);
-                                                font-size: 10pt;
-                                                width: 62px;
+                                                font-size: Theme.text-base;
+                                                width: Theme.w-62;
                                                 vertical-alignment: center;
                                             }
                                             Text {
                                                 text: line.msg;
                                                 color: root.level-color(line.level);
-                                                font-size: 10pt;
+                                                font-size: Theme.text-base;
                                                 overflow: elide;
                                                 vertical-alignment: center;
                                                 horizontal-stretch: 1;
@@ -480,19 +597,19 @@ export component App inherits Window {
                                         }
                                     }
                                     scrolled => {
-                                        root.stick = lv.content-y <= lv.visible-height - lv.content-height + 2px;
+                                        root.stick = lv.content-y <= lv.visible-height - lv.content-height + Theme.divider;
                                     }
                                 }
 
-                                // selection overlay (leaves 14px for the scrollbar); captures wheel too
+                                // selection overlay (leaves Theme.vsep for the scrollbar); captures wheel too
                                 TouchArea {
                                     x: 0;
                                     y: 0;
-                                    width: parent.width - 14px;
+                                    width: parent.width - Theme.vsep;
                                     height: parent.height;
                                     scroll-event(e) => {
                                         lv.content-y = clamp(lv.content-y + e.delta-y, min(0px, lv.visible-height - lv.content-height), 0px);
-                                        root.stick = lv.content-y <= lv.visible-height - lv.content-height + 2px;
+                                        root.stick = lv.content-y <= lv.visible-height - lv.content-height + Theme.divider;
                                         accept
                                     }
                                     pointer-event(e) => {
@@ -509,8 +626,8 @@ export component App inherits Window {
                                     }
                                 }
                                 TokBtn {
-                                    x: parent.width - self.width - 22px;
-                                    y: parent.height - self.height - 10px;
+                                    x: parent.width - self.width - Theme.line-h;
+                                    y: parent.height - self.height - Theme.space-10;
                                     label: "Jump to latest";
                                     active: true;
                                     visible: !root.stick;
@@ -519,17 +636,17 @@ export component App inherits Window {
                             }
                             // command input
                             Rectangle {
-                                height: 40px;
-                                background: Tok.card;
-                                border-radius: 6px;
+                                height: Theme.h-40;
+                                background: Theme.card;
+                                border-radius: Theme.space-6;
                                 HorizontalLayout {
-                                    padding: 6px;
-                                    spacing: 8px;
+                                    padding: Theme.space-6;
+                                    spacing: Theme.space-8;
                                     cmd-input := LineEdit {
                                         text <=> root.cmd-text;
                                         placeholder-text: "server command (stdin)";
                                         font-family: "Noto Sans";
-                                        font-size: 10pt;
+                                        font-size: Theme.text-base;
                                         accepted => {
                                             root.send-command(root.cmd-text);
                                             root.cmd-text = "";
@@ -537,7 +654,7 @@ export component App inherits Window {
                                     }
                                     TokBtn {
                                         label: "Send";
-                                        width: 72px;
+                                        width: Theme.w-72;
                                         enabled: root.cmd-text != "" && root.instance-name != "";
                                         clicked => {
                                             root.send-command(root.cmd-text);
@@ -550,67 +667,67 @@ export component App inherits Window {
                     // ---- settings overlay ----
                     // Starts BELOW the top bar + tab row so those stay
                     // visible and clickable while Settings is open
-                    // (92px = 8 padding + 40 top bar + 8 spacing + 28 tabs
+                    // (Theme.overlay-y = 8 padding + 40 top bar + 8 spacing + 28 tabs
                     // + 8 spacing, mirroring console-col's layout).
                     Rectangle {
                         visible: root.settings-tab == 1;
                         x: 0;
-                        y: 92px;
+                        y: Theme.overlay-y;
                         width: parent.width;
-                        height: parent.height - 92px;
-                        background: Tok.bg;
+                        height: parent.height - Theme.overlay-y;
+                        background: Theme.bg;
                         ScrollView {
                             x: 0;
                             y: 0;
                             width: parent.width;
                             height: parent.height;
                             VerticalLayout {
-                                spacing: 12px;
-                                padding: 10px;
+                                spacing: Theme.space-12;
+                                padding: Theme.space-10;
 
                                 HorizontalLayout {
-                                    spacing: 8px;
+                                    spacing: Theme.space-8;
                                     Text {
                                         text: "Settings";
-                                        color: Tok.fg;
-                                        font-size: 12pt;
+                                        color: Theme.fg;
+                                        font-size: Theme.text-xl;
                                     }
                                     Rectangle { horizontal-stretch: 1; }
                                     Text {
                                         text: root.settings-dirty ? "Unsaved changes" : "Saved";
-                                        color: root.settings-dirty ? Tok.warn : Tok.muted-fg;
-                                        font-size: 9pt;
+                                        color: root.settings-dirty ? Theme.warn : Theme.muted-fg;
+                                        font-size: Theme.text-sm;
                                         vertical-alignment: center;
                                     }
-                                    Text { visible: root.settings-loading; text: "Loading…"; color: Tok.muted-fg; font-size: 9pt; vertical-alignment: center; }
+                                    Text { visible: root.settings-loading; text: "Loading…"; color: Theme.muted-fg; font-size: Theme.text-sm; vertical-alignment: center; }
                                 }
 
                                 // ---- Instance group ----
                                 Rectangle {
-                                    background: Tok.card;
-                                    border-radius: 6px;
-                                    border-width: 1px;
-                                    border-color: Tok.border;
+                                    background: Theme.card;
+                                    border-radius: Theme.space-6;
+                                    border-width: Theme.hairline;
+                                    border-color: Theme.border;
                                     VerticalLayout {
-                                        spacing: 8px;
-                                        padding: 10px;
-                                        Text { text: "Instance"; color: Tok.muted-fg; font-size: 9pt; }
+                                        spacing: Theme.space-8;
+                                        padding: Theme.space-10;
+                                        Text { text: "Instance"; color: Theme.muted-fg; font-size: Theme.text-sm; }
 
-                                        Text { text: "Display name"; color: Tok.muted-fg; font-size: 9pt; }
+                                        Text { text: "Display name"; color: Theme.muted-fg; font-size: Theme.text-sm; }
                                         LineEdit {
                                             text <=> root.settings-name;
-                                            font-size: 10pt;
+                                            font-size: Theme.text-base;
                                             edited => { root.settings-touched(); }
                                             accepted => { root.settings-save(); }
                                         }
 
-                                        Text { text: "Work dir"; color: Tok.muted-fg; font-size: 9pt; }
-                                        HorizontalLayout { spacing: 8px;
+                                        Text { text: "Work dir"; color: Theme.muted-fg; font-size: Theme.text-sm; }
+                                        HorizontalLayout { spacing: Theme.space-8;
                                             LineEdit {
                                                 text <=> root.settings-work-dir;
                                                 placeholder-text: "/srv/minecraft/survival";
                                                 font-family: "Noto Sans Mono";
-                                                font-size: 10pt;
+                                                font-size: Theme.text-base;
                                                 horizontal-stretch: 1;
                                                 edited => { root.settings-touched(); }
                                                 accepted => { root.settings-save(); }
@@ -621,10 +738,10 @@ export component App inherits Window {
                                                 clicked => { root.settings-scan-workdir(); }
                                             }
                                         }
-                                        Text { visible: root.settings-scan-note != ""; text: root.settings-scan-note; color: Tok.muted-fg; font-size: 9pt; }
+                                        Text { visible: root.settings-scan-note != ""; text: root.settings-scan-note; color: Theme.muted-fg; font-size: Theme.text-sm; }
                                         ErrorText { visible: root.settings-scan-error != ""; content: root.settings-scan-error; }
 
-                                        Text { text: "Java runtime"; color: Tok.muted-fg; font-size: 9pt; }
+                                        Text { text: "Java runtime"; color: Theme.muted-fg; font-size: Theme.text-sm; }
                                         ComboBox {
                                             model: root.settings-java-items;
                                             current-value <=> root.settings-java;
@@ -632,12 +749,12 @@ export component App inherits Window {
                                             horizontal-stretch: 1;
                                         }
                                         HorizontalLayout { visible: root.settings-java == "Custom path…";
-                                            Text { text: "Custom java path"; color: Tok.muted-fg; font-size: 9pt; width: 120px; }
+                                            Text { text: "Custom java path"; color: Theme.muted-fg; font-size: Theme.text-sm; width: Theme.w-120; }
                                             LineEdit {
                                                 text <=> root.settings-java-custom;
                                                 placeholder-text: "/path/to/bin/java";
                                                 font-family: "Noto Sans Mono";
-                                                font-size: 10pt;
+                                                font-size: Theme.text-base;
                                                 horizontal-stretch: 1;
                                                 edited => {
                                                     root.settings-java = root.settings-java-custom;
@@ -647,30 +764,30 @@ export component App inherits Window {
                                             }
                                         }
 
-                                        HorizontalLayout { spacing: 8px;
-                                            Text { text: "Min RAM (MiB)"; color: Tok.muted-fg; font-size: 9pt; width: 120px; }
+                                        HorizontalLayout { spacing: Theme.space-8;
+                                            Text { text: "Min RAM (MiB)"; color: Theme.muted-fg; font-size: Theme.text-sm; width: Theme.w-120; }
                                             LineEdit {
                                                 text <=> root.settings-min-ram;
                                                 placeholder-text: "256";
-                                                font-size: 10pt;
-                                                width: 120px;
+                                                font-size: Theme.text-base;
+                                                width: Theme.w-120;
                                                 edited => { root.settings-touched(); }
                                                 accepted => { root.settings-save(); }
                                             }
                                         }
-                                        HorizontalLayout { spacing: 8px;
-                                            Text { text: "Max RAM (MiB)"; color: Tok.muted-fg; font-size: 9pt; width: 120px; }
+                                        HorizontalLayout { spacing: Theme.space-8;
+                                            Text { text: "Max RAM (MiB)"; color: Theme.muted-fg; font-size: Theme.text-sm; width: Theme.w-120; }
                                             LineEdit {
                                                 text <=> root.settings-max-ram;
                                                 placeholder-text: "512";
-                                                font-size: 10pt;
-                                                width: 120px;
+                                                font-size: Theme.text-base;
+                                                width: Theme.w-120;
                                                 edited => { root.settings-touched(); }
                                                 accepted => { root.settings-save(); }
                                             }
                                         }
-                                        HorizontalLayout { spacing: 8px;
-                                            Text { text: "Preset"; color: Tok.muted-fg; font-size: 9pt; width: 120px; }
+                                        HorizontalLayout { spacing: Theme.space-8;
+                                            Text { text: "Preset"; color: Theme.muted-fg; font-size: Theme.text-sm; width: Theme.w-120; }
                                             ComboBox {
                                                 model: ["none", "aikar", "custom"];
                                                 current-value <=> root.settings-preset;
@@ -678,23 +795,23 @@ export component App inherits Window {
                                                 horizontal-stretch: 1;
                                             }
                                         }
-                                        Text { visible: root.settings-preset == "custom"; text: "Extra JVM args (one per line)"; color: Tok.muted-fg; font-size: 9pt; width: 220px; }
+                                        Text { visible: root.settings-preset == "custom"; text: "Extra JVM args (one per line)"; color: Theme.muted-fg; font-size: Theme.text-sm; width: Theme.w-220; }
                                         TextEdit { visible: root.settings-preset == "custom";
                                             text <=> root.settings-jvm-extra;
                                             font-family: "Noto Sans Mono";
-                                            font-size: 10pt;
-                                            height: 90px;
+                                            font-size: Theme.text-base;
+                                            height: Theme.h-90;
                                             edited => { root.settings-touched(); }
                                         }
                                         Text {
                                             text: "Final: -Xms" + root.settings-min-ram + " -Xmx"
                                                 + root.settings-max-ram
                                                 + (root.settings-preset == "aikar" ? " (Aikar's flags)" : "");
-                                            color: Tok.muted-fg;
-                                            font-size: 9pt;
+                                            color: Theme.muted-fg;
+                                            font-size: Theme.text-sm;
                                         }
-                                        HorizontalLayout { spacing: 8px;
-                                            Text { text: "Launch mode"; color: Tok.muted-fg; font-size: 9pt; width: 120px; }
+                                        HorizontalLayout { spacing: Theme.space-8;
+                                            Text { text: "Launch mode"; color: Theme.muted-fg; font-size: Theme.text-sm; width: Theme.w-120; }
                                             ComboBox {
                                                 model: ["jar", "args-file", "custom"];
                                                 current-value <=> root.settings-launch-mode;
@@ -702,12 +819,12 @@ export component App inherits Window {
                                                 horizontal-stretch: 1;
                                             }
                                         }
-                                        Text { text: "Launch args"; color: Tok.muted-fg; font-size: 9pt; }
+                                        Text { text: "Launch args"; color: Theme.muted-fg; font-size: Theme.text-sm; }
                                         LineEdit {
                                             text <=> root.settings-launch-args;
                                             placeholder-text: "-jar server.jar nogui";
                                             font-family: "Noto Sans Mono";
-                                            font-size: 10pt;
+                                            font-size: Theme.text-base;
                                             edited => { root.settings-touched(); }
                                             accepted => { root.settings-save(); }
                                         }
@@ -721,38 +838,38 @@ export component App inherits Window {
 
                                 // ---- Probe group ----
                                 Rectangle {
-                                    background: Tok.card;
-                                    border-radius: 6px;
-                                    border-width: 1px;
-                                    border-color: Tok.border;
+                                    background: Theme.card;
+                                    border-radius: Theme.space-6;
+                                    border-width: Theme.hairline;
+                                    border-color: Theme.border;
                                     VerticalLayout {
-                                        spacing: 8px;
-                                        padding: 10px;
-                                        Text { text: "Probe"; color: Tok.muted-fg; font-size: 9pt; }
-                                        Text { text: "Host"; color: Tok.muted-fg; font-size: 9pt; }
+                                        spacing: Theme.space-8;
+                                        padding: Theme.space-10;
+                                        Text { text: "Probe"; color: Theme.muted-fg; font-size: Theme.text-sm; }
+                                        Text { text: "Host"; color: Theme.muted-fg; font-size: Theme.text-sm; }
                                         LineEdit {
                                             text <=> root.settings-probe-host;
                                             placeholder-text: "127.0.0.1";
                                             font-family: "Noto Sans Mono";
-                                            font-size: 10pt;
+                                            font-size: Theme.text-base;
                                             edited => { root.settings-touched(); }
                                             accepted => { root.settings-save(); }
                                         }
-                                        Text { text: "Port"; color: Tok.muted-fg; font-size: 9pt; }
+                                        Text { text: "Port"; color: Theme.muted-fg; font-size: Theme.text-sm; }
                                         LineEdit {
                                             text <=> root.settings-probe-port;
                                             placeholder-text: "25565";
-                                            font-size: 10pt;
-                                            width: 120px;
+                                            font-size: Theme.text-base;
+                                            width: Theme.w-120;
                                             edited => { root.settings-touched(); }
                                             accepted => { root.settings-save(); }
                                         }
-                                        Text { text: "Timeout (s)"; color: Tok.muted-fg; font-size: 9pt; }
+                                        Text { text: "Timeout (s)"; color: Theme.muted-fg; font-size: Theme.text-sm; }
                                         LineEdit {
                                             text <=> root.settings-probe-timeout;
                                             placeholder-text: "3";
-                                            font-size: 10pt;
-                                            width: 120px;
+                                            font-size: Theme.text-base;
+                                            width: Theme.w-120;
                                             edited => { root.settings-touched(); }
                                             accepted => { root.settings-save(); }
                                         }
@@ -766,54 +883,54 @@ export component App inherits Window {
 
                                 // ---- Restart group ----
                                 Rectangle {
-                                    background: Tok.card;
-                                    border-radius: 6px;
-                                    border-width: 1px;
-                                    border-color: Tok.border;
+                                    background: Theme.card;
+                                    border-radius: Theme.space-6;
+                                    border-width: Theme.hairline;
+                                    border-color: Theme.border;
                                     VerticalLayout {
-                                        spacing: 8px;
-                                        padding: 10px;
-                                        Text { text: "Restart"; color: Tok.muted-fg; font-size: 9pt; }
-                                        Text { text: "Policy"; color: Tok.muted-fg; font-size: 9pt; }
+                                        spacing: Theme.space-8;
+                                        padding: Theme.space-10;
+                                        Text { text: "Restart"; color: Theme.muted-fg; font-size: Theme.text-sm; }
+                                        Text { text: "Policy"; color: Theme.muted-fg; font-size: Theme.text-sm; }
                                         ComboBox {
                                             model: ["never", "on-crash"];
                                             current-value <=> root.settings-restart-policy;
                                             selected => { root.settings-touched(); }
                                             horizontal-stretch: 1;
                                         }
-                                        Text { text: "Max retries"; color: Tok.muted-fg; font-size: 9pt; }
+                                        Text { text: "Max retries"; color: Theme.muted-fg; font-size: Theme.text-sm; }
                                         LineEdit {
                                             text <=> root.settings-restart-max-retries;
                                             placeholder-text: "5";
-                                            font-size: 10pt;
-                                            width: 120px;
+                                            font-size: Theme.text-base;
+                                            width: Theme.w-120;
                                             edited => { root.settings-touched(); }
                                             accepted => { root.settings-save(); }
                                         }
-                                        Text { text: "Backoff base (s)"; color: Tok.muted-fg; font-size: 9pt; }
+                                        Text { text: "Backoff base (s)"; color: Theme.muted-fg; font-size: Theme.text-sm; }
                                         LineEdit {
                                             text <=> root.settings-restart-backoff-base;
                                             placeholder-text: "5";
-                                            font-size: 10pt;
-                                            width: 120px;
+                                            font-size: Theme.text-base;
+                                            width: Theme.w-120;
                                             edited => { root.settings-touched(); }
                                             accepted => { root.settings-save(); }
                                         }
-                                        Text { text: "Backoff max (s)"; color: Tok.muted-fg; font-size: 9pt; }
+                                        Text { text: "Backoff max (s)"; color: Theme.muted-fg; font-size: Theme.text-sm; }
                                         LineEdit {
                                             text <=> root.settings-restart-backoff-max;
                                             placeholder-text: "300";
-                                            font-size: 10pt;
-                                            width: 120px;
+                                            font-size: Theme.text-base;
+                                            width: Theme.w-120;
                                             edited => { root.settings-touched(); }
                                             accepted => { root.settings-save(); }
                                         }
-                                        Text { text: "Reset after online (s)"; color: Tok.muted-fg; font-size: 9pt; }
+                                        Text { text: "Reset after online (s)"; color: Theme.muted-fg; font-size: Theme.text-sm; }
                                         LineEdit {
                                             text <=> root.settings-restart-reset-after;
                                             placeholder-text: "600";
-                                            font-size: 10pt;
-                                            width: 120px;
+                                            font-size: Theme.text-base;
+                                            width: Theme.w-120;
                                             edited => { root.settings-touched(); }
                                             accepted => { root.settings-save(); }
                                         }
@@ -821,7 +938,7 @@ export component App inherits Window {
                                 }
 
                                 ErrorText { visible: root.settings-error != ""; content: root.settings-error; }
-                                HorizontalLayout { spacing: 8px;
+                                HorizontalLayout { spacing: Theme.space-8;
                                     Btn2 {
                                         label: "Save";
                                         primary: true;
@@ -836,10 +953,446 @@ export component App inherits Window {
                                     Rectangle { horizontal-stretch: 1; }
                                     Text {
                                         text: root.settings-status;
-                                        color: Tok.muted-fg;
-                                        font-size: 9pt;
+                                        color: Theme.muted-fg;
+                                        font-size: Theme.text-sm;
                                         vertical-alignment: center;
                                     }
+                                }
+                            }
+                        }
+                    // ---- properties overlay ----
+                    Rectangle {
+                        visible: root.settings-tab == 2;
+                        x: 0;
+                        y: Theme.overlay-y;
+                        width: parent.width;
+                        height: parent.height - Theme.overlay-y;
+                        background: Theme.bg;
+                        ScrollView {
+                            x: 0;
+                            y: 0;
+                            width: parent.width;
+                            height: parent.height;
+                            VerticalLayout {
+                                spacing: Theme.space-12;
+                                padding: Theme.space-10;
+
+                                HorizontalLayout {
+                                    spacing: Theme.space-8;
+                                    Text {
+                                        text: "server.properties";
+                                        color: Theme.fg;
+                                        font-size: Theme.text-xl;
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Text {
+                                        text: root.properties-dirty ? "Unsaved changes" : "Saved.";
+                                        color: root.properties-dirty ? Theme.warn : Theme.muted-fg;
+                                        font-size: Theme.text-sm;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        visible: root.properties-loading;
+                                        text: "Loading…";
+                                        color: Theme.muted-fg;
+                                        font-size: Theme.text-sm;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                ErrorText {
+                                    visible: root.properties-error != "";
+                                    content: root.properties-error;
+                                }
+
+                                Text {
+                                    text: "Raw properties (comments and order preserved)";
+                                    color: Theme.muted-fg;
+                                    font-size: Theme.text-sm;
+                                }
+
+                                Rectangle {
+                                    vertical-stretch: 1;
+                                    background: Theme.card;
+                                    border-radius: Theme.radius-sm;
+                                    border-width: Theme.hairline;
+                                    border-color: Theme.border;
+                                    clip: true;
+                                    TextEdit {
+                                        x: 0;
+                                        y: 0;
+                                        width: parent.width;
+                                        height: parent.height;
+                                        text <=> root.properties-text;
+                                        font-family: "Noto Sans Mono";
+                                        font-size: Theme.text-base;
+                                        edited => { root.properties-touched(); }
+                                    }
+                                }
+
+                                HorizontalLayout { spacing: Theme.space-8;
+                                    Btn2 {
+                                        label: "Revert";
+                                        enabled: root.properties-dirty && !root.properties-loading;
+                                        clicked => { root.properties-revert(); }
+                                    }
+                                    Btn2 {
+                                        label: "Save";
+                                        primary: true;
+                                        enabled: root.properties-dirty && !root.properties-loading;
+                                        clicked => { root.properties-save(); }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Text {
+                                        text: root.properties-status;
+                                        color: Theme.muted-fg;
+                                        font-size: Theme.text-sm;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ---- mods overlay ----
+                    Rectangle {
+                        visible: root.settings-tab == 3;
+                        x: 0;
+                        y: Theme.overlay-y;
+                        width: parent.width;
+                        height: parent.height - Theme.overlay-y;
+                        background: Theme.bg;
+                        ScrollView {
+                            x: 0;
+                            y: 0;
+                            width: parent.width;
+                            height: parent.height;
+                            VerticalLayout {
+                                spacing: Theme.space-12;
+                                padding: Theme.space-10;
+
+                                HorizontalLayout {
+                                    spacing: Theme.space-8;
+                                    Text {
+                                        text: "Mods";
+                                        color: Theme.fg;
+                                        font-size: Theme.text-xl;
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    LineEdit {
+                                        text <=> root.mods-filter;
+                                        placeholder-text: "Search mods…";
+                                        font-size: Theme.text-base;
+                                        width: Theme.w-240;
+                                        edited => { root.mods-touched(); }
+                                    }
+                                    Text {
+                                        visible: root.mods-loading;
+                                        text: "Loading…";
+                                        color: Theme.muted-fg;
+                                        font-size: Theme.text-sm;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                Text {
+                                    text: root.mods-count;
+                                    color: Theme.muted-fg;
+                                    font-size: Theme.text-sm;
+                                }
+
+                                Text {
+                                    visible: root.mods-empty && root.mods-filter != "";
+                                    text: "No results — try clearing the filter.";
+                                    color: Theme.muted-fg;
+                                    font-size: Theme.text-sm;
+                                }
+                                Text {
+                                    visible: root.mods-empty && root.mods-filter == "";
+                                    text: "No mods found.\nDrop .jar files into <work_dir>/mods/.";
+                                    color: Theme.muted-fg;
+                                    font-size: Theme.text-sm;
+                                }
+                                for m in root.mods-filtered: Rectangle {
+                                    visible: !root.mods-empty;
+                                    height: Theme.h-44;
+                                    background: ta.has-hover ? Theme.muted : transparent;
+                                    HorizontalLayout {
+                                        padding-left: Theme.space-8;
+                                        padding-right: Theme.space-8;
+                                        spacing: Theme.space-8;
+                                        Text {
+                                            text: m.name;
+                                            color: Theme.fg;
+                                            font-family: "Noto Sans Mono";
+                                            font-size: Theme.text-base;
+                                            vertical-alignment: center;
+                                        }
+                                        Text {
+                                            text: m.size;
+                                            color: Theme.muted-fg;
+                                            font-size: Theme.text-sm;
+                                            width: Theme.w-72;
+                                            vertical-alignment: center;
+                                        }
+                                        Text {
+                                            text: m.enabled ? "enabled" : "disabled";
+                                            color: m.enabled ? Theme.accent : Theme.muted-fg;
+                                            font-size: Theme.text-sm;
+                                            vertical-alignment: center;
+                                        }
+                                        TokBtn {
+                                            label: root.mods-busy == m.name ? "Working…" : (m.enabled ? "Disable" : "Enable");
+                                            enabled: root.mods-busy != m.name;
+                                            clicked => { root.mods-toggle(m.name, !m.enabled); }
+                                        }
+                                    }
+                                    ta := TouchArea { clicked => {} }
+                                }
+                            }
+                        }
+                    }
+
+                    // ---- notifications overlay ----
+                    Rectangle {
+                        visible: root.settings-tab == 4;
+                        x: 0;
+                        y: Theme.overlay-y;
+                        width: parent.width;
+                        height: parent.height - Theme.overlay-y;
+                        background: Theme.bg;
+                        ScrollView {
+                            x: 0;
+                            y: 0;
+                            width: parent.width;
+                            height: parent.height;
+                            VerticalLayout {
+                                spacing: Theme.space-12;
+                                padding: Theme.space-10;
+
+                                HorizontalLayout {
+                                    spacing: Theme.space-8;
+                                    Text {
+                                        text: "Discord";
+                                        color: Theme.fg;
+                                        font-size: Theme.text-xl;
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Text {
+                                        visible: root.notif-load-error != "";
+                                        text: root.notif-load-error;
+                                        color: Theme.err;
+                                        font-size: Theme.text-sm;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                Text {
+                                    visible: !root.notif-loaded && root.notif-load-error == "";
+                                    text: "Loading…";
+                                    color: Theme.muted-fg;
+                                    font-size: Theme.text-sm;
+                                }
+
+                                VerticalLayout { visible: root.notif-loaded; spacing: Theme.space-12;
+                                        Text { text: "Notifier"; color: Theme.muted-fg; font-size: Theme.text-sm; }
+
+                                        CheckBox {
+                                            checked <=> root.notif-enabled;
+                                            text: "Enabled";
+                                            toggled => { root.notif-touched(); }
+                                        }
+
+                                        HorizontalLayout { spacing: Theme.space-8;
+                                            Text {
+                                                text: "Mode";
+                                                width: Theme.w-120;
+                                                color: Theme.muted-fg;
+                                                font-size: Theme.text-sm;
+                                                vertical-alignment: center;
+                                            }
+                                            ComboBox {
+                                                model: ["edit-in-place", "new-message"];
+                                                current-value <=> root.notif-mode;
+                                                selected => { root.notif-touched(); }
+                                                horizontal-stretch: 1;
+                                            }
+                                        }
+
+                                        HorizontalLayout { spacing: Theme.space-8;
+                                            Text {
+                                                text: "Interval (seconds)";
+                                                width: Theme.w-120;
+                                                color: Theme.muted-fg;
+                                                font-size: Theme.text-sm;
+                                                vertical-alignment: center;
+                                            }
+                                            LineEdit {
+                                                text <=> root.notif-interval;
+                                                placeholder-text: "600";
+                                                font-size: Theme.text-base;
+                                                width: Theme.w-120;
+                                                edited => { root.notif-touched(); }
+                                            }
+                                        }
+
+                                        HorizontalLayout { spacing: Theme.space-8;
+                                            Text {
+                                                text: "First push delay (s)";
+                                                width: Theme.w-120;
+                                                color: Theme.muted-fg;
+                                                font-size: Theme.text-sm;
+                                                vertical-alignment: center;
+                                            }
+                                            LineEdit {
+                                                text <=> root.notif-first-push;
+                                                placeholder-text: "10";
+                                                font-size: Theme.text-base;
+                                                width: Theme.w-120;
+                                                edited => { root.notif-touched(); }
+                                            }
+                                        }
+
+                                        HorizontalLayout { spacing: Theme.space-8;
+                                            Text {
+                                                text: "Log lines per message";
+                                                width: Theme.w-120;
+                                                color: Theme.muted-fg;
+                                                font-size: Theme.text-sm;
+                                                vertical-alignment: center;
+                                            }
+                                            LineEdit {
+                                                text <=> root.notif-log-lines;
+                                                placeholder-text: "15";
+                                                font-size: Theme.text-base;
+                                                width: Theme.w-120;
+                                                edited => { root.notif-touched(); }
+                                            }
+                                        }
+
+                                        HorizontalLayout { spacing: Theme.space-8;
+                                            Text {
+                                                text: "Max log chars";
+                                                width: Theme.w-120;
+                                                color: Theme.muted-fg;
+                                                font-size: Theme.text-sm;
+                                                vertical-alignment: center;
+                                            }
+                                            LineEdit {
+                                                text <=> root.notif-max-log-chars;
+                                                placeholder-text: "1500";
+                                                font-size: Theme.text-base;
+                                                width: Theme.w-120;
+                                                edited => { root.notif-touched(); }
+                                            }
+                                        }
+
+                                        HorizontalLayout { spacing: Theme.space-8;
+                                            CheckBox {
+                                                checked <=> root.notif-state-change-posts;
+                                                text: "State-change posts";
+                                                toggled => { root.notif-touched(); }
+                                            }
+                                            Rectangle { horizontal-stretch: 1; }
+                                        }
+
+                                        HorizontalLayout { spacing: Theme.space-8;
+                                            Text {
+                                                text: "State-change debounce (s)";
+                                                width: Theme.w-120;
+                                                color: Theme.muted-fg;
+                                                font-size: Theme.text-sm;
+                                                vertical-alignment: center;
+                                            }
+                                            LineEdit {
+                                                text <=> root.notif-state-change-debounce;
+                                                placeholder-text: "30";
+                                                font-size: Theme.text-base;
+                                                width: Theme.w-120;
+                                                edited => { root.notif-touched(); }
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "Redact regexes (one per line)";
+                                            color: Theme.muted-fg;
+                                            font-size: Theme.text-sm;
+                                        }
+                                        TextEdit {
+                                            text <=> root.notif-redact;
+                                            font-family: "Noto Sans Mono";
+                                            font-size: Theme.text-base;
+                                            height: Theme.h-90;
+                                            edited => { root.notif-touched(); }
+                                        }
+
+                                        Rectangle {
+                                            background: Theme.card;
+                                            border-radius: Theme.radius-sm;
+                                            border-width: Theme.hairline;
+                                            border-color: Theme.border;
+                                            VerticalLayout {
+                                                spacing: Theme.space-8;
+                                                padding: Theme.space-10;
+                                                Text { text: "Webhook"; color: Theme.muted-fg; font-size: Theme.text-sm; }
+                                                Text {
+                                                    text: root.notif-webhook-set ? "A webhook URL is stored." : "No webhook stored.";
+                                                    color: Theme.muted-fg;
+                                                    font-size: Theme.text-sm;
+                                                }
+                                                LineEdit {
+                                                    text <=> root.notif-webhook;
+                                                    placeholder-text: "https://discord.com/api/webhooks/…";
+                                                    font-family: "Noto Sans Mono";
+                                                    font-size: Theme.text-base;
+                                                    edited => { root.notif-touched(); }
+                                                }
+                                                Text {
+                                                    text: "The URL is never shown again, never logged, and never sent to the webview.";
+                                                    color: Theme.muted-fg;
+                                                    font-size: Theme.text-sm;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                HorizontalLayout { spacing: Theme.space-8;
+                                    Btn2 {
+                                        label: "Save";
+                                        primary: true;
+                                        enabled: root.notif-dirty && !root.notif-saving && root.notif-loaded;
+                                        clicked => { root.notif-save(); }
+                                    }
+                                    Btn2 {
+                                        label: "Revert";
+                                        enabled: root.notif-dirty && !root.notif-saving && root.notif-loaded;
+                                        clicked => { root.notif-revert(); }
+                                    }
+                                    TokBtn {
+                                        label: root.notif-sending ? "Sending…" : "Send test";
+                                        enabled: !root.notif-sending && root.notif-loaded;
+                                        clicked => { root.notif-test(); }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Text {
+                                        text: root.notif-result;
+                                        color: root.notif-result-ok ? Theme.accent : Theme.err;
+                                        font-size: Theme.text-sm;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                ErrorText {
+                                    visible: root.notif-error != "";
+                                    content: root.notif-error;
+                                }
+
+                                Text {
+                                    text: root.notif-status;
+                                    color: Theme.muted-fg;
+                                    font-size: Theme.text-sm;
+                                    vertical-alignment: center;
                                 }
                             }
                         }
@@ -848,41 +1401,41 @@ export component App inherits Window {
             }
             // ---- status bar ----
             Rectangle {
-                height: 26px;
-                background: Tok.card;
+                height: Theme.h-26;
+                background: Theme.card;
                     HorizontalLayout {
-                        padding-left: 10px;
-                        padding-right: 18px;
-                        spacing: 12px;
+                        padding-left: Theme.space-10;
+                        padding-right: Theme.space-18;
+                        spacing: Theme.space-12;
                         Rectangle {
-                            width: 8px; height: 8px; border-radius: 4px;
-                            background: root.daemon-ok ? Tok.online : Tok.crashed;
+                            width: Theme.space-8; height: Theme.space-8; border-radius: Theme.radius-xs;
+                            background: root.daemon-ok ? Theme.online : Theme.crashed;
                         }
                         Text {
                             text: root.daemon-info;
-                            color: Tok.muted-fg;
-                            font-size: 9pt;
+                            color: Theme.muted-fg;
+                            font-size: Theme.text-sm;
                             vertical-alignment: center;
                         }
-                        Rectangle { width: 1px; height: 14px; background: Tok.border; }
+                        Rectangle { width: Theme.hairline; height: Theme.vsep; background: Theme.border; }
                         Text {
                             text: root.ws-live ? "console: connected" : "console: reconnecting";
-                            color: root.ws-live ? Tok.muted-fg : Tok.warn;
-                            font-size: 9pt;
+                            color: root.ws-live ? Theme.muted-fg : Theme.warn;
+                            font-size: Theme.text-sm;
                             vertical-alignment: center;
                         }
                         Text {
                             text: root.status;
-                            color: Tok.muted-fg;
-                            font-size: 9pt;
+                            color: Theme.muted-fg;
+                            font-size: Theme.text-sm;
                             vertical-alignment: center;
                             horizontal-stretch: 1;
                             overflow: elide;
                         }
                         Text {
                             text: "ring " + root.lines.length + "/1000";
-                            color: Tok.muted-fg;
-                            font-size: 9pt;
+                            color: Theme.muted-fg;
+                            font-size: Theme.text-sm;
                             vertical-alignment: center;
                         }
                     }
@@ -895,34 +1448,34 @@ export component App inherits Window {
         visible: root.confirm-open;
         width: parent.width;
         height: parent.height;
-        background: #000000aa;
+        background: Theme.backdrop;
         TouchArea { clicked => {} }
         Rectangle {
-            x: parent.width / 2 - 210px;
-            y: parent.height / 2 - 100px;
-            width: 420px;
-            height: 200px;
-            background: Tok.card;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: Tok.border;
+            x: parent.width / 2 - Theme.w-210;
+            y: parent.height / 2 - Theme.h-100;
+            width: Theme.w-420;
+            height: Theme.h-200;
+            background: Theme.card;
+            border-radius: Theme.space-8;
+            border-width: Theme.hairline;
+            border-color: Theme.border;
             VerticalLayout {
-                padding: 18px;
-                spacing: 12px;
+                padding: Theme.space-18;
+                spacing: Theme.space-12;
                 alignment: center;
                 Text {
                     text: root.confirm-title;
-                    color: Tok.fg;
-                    font-size: 11pt;
+                    color: Theme.fg;
+                    font-size: Theme.text-lg;
                     horizontal-alignment: center;
                 }
                 Text {
                     text: root.confirm-text;
-                    color: Tok.muted-fg;
-                    font-size: 9pt;
+                    color: Theme.muted-fg;
+                    font-size: Theme.text-sm;
                     horizontal-alignment: center;
                 }
-                HorizontalLayout { spacing: 8px; alignment: center;
+                HorizontalLayout { spacing: Theme.space-8; alignment: center;
                     TokBtn {
                         label: "No";
                         clicked => { root.confirm-no(); }
@@ -970,12 +1523,12 @@ component BtnWiz inherits Rectangle {
     in property <bool> primary: false;
     in property <bool> enabled: true;
     callback clicked;
-    height: 32px;
-    width: max(88px, txt.preferred-width + 24px);
-    border-radius: 6px;
-    border-width: 1px;
-    border-color: !root.enabled ? #475569 : (root.primary ? #22c55e : #475569);
-    background: (!root.enabled || root.primary) ? #1f2940 : #1b2336;
+    height: Theme.h-32;
+    width: max(Theme.w-88, txt.preferred-width + Theme.space-24);
+    border-radius: Theme.space-6;
+    border-width: Theme.hairline;
+    border-color: !root.enabled ? Theme.border : (root.primary ? Theme.accent : Theme.border);
+    background: (!root.enabled || root.primary) ? Theme.card-hover : Theme.card;
     ta := TouchArea {
         clicked => {
             if (root.enabled) {
@@ -985,8 +1538,8 @@ component BtnWiz inherits Rectangle {
     }
     txt := Text {
         text: root.label;
-        color: !root.enabled ? #94a3b8 : (root.primary ? #ffffff : #f8fafc);
-        font-size: 10pt;
+        color: !root.enabled ? Theme.muted-fg : (root.primary ? Theme.accent-text : Theme.fg);
+        font-size: Theme.text-base;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -995,18 +1548,18 @@ component BtnWiz inherits Rectangle {
 component ErrorTextWiz inherits Text {
     in property <string> content: "";
     text: root.content;
-    color: #ef4444;
-    font-size: 9pt;
+    color: Theme.err;
+    font-size: Theme.text-sm;
     overflow: elide;
 }
 
 export component WizardWindow inherits Window {
     title: "Add instance — Minewrap";
-    min-width: 720px;
-    min-height: 660px;
-    background: #0f172a;
+    min-width: Theme.wiz-min-w;
+    min-height: Theme.wiz-min-h;
+    background: Theme.bg;
     default-font-family: "Noto Sans";
-    default-font-size: 10pt;
+    default-font-size: Theme.text-base;
 
     in-out property <string> wiz-id: "";
     in-out property <string> wiz-name: "";
@@ -1030,8 +1583,8 @@ export component WizardWindow inherits Window {
     callback scan-workdir;
     callback detect-java;
 
-    property <color> muted-fg: #94a3b8;
-    property <color> err: #ef4444;
+    property <color> muted-fg: Theme.muted-fg;
+    property <color> err: Theme.err;
 
     FocusScope {
         key-pressed(event) => {
@@ -1043,44 +1596,44 @@ export component WizardWindow inherits Window {
         }
 
         VerticalLayout {
-            padding: 16px;
-            spacing: 12px;
+            padding: Theme.space-16;
+            spacing: Theme.space-12;
 
             Text {
                 text: "Add instance";
-                font-size: 13pt;
-                color: #f8fafc;
+                font-size: Theme.text-wizard;
+                color: Theme.fg;
             }
             Text {
                 text: "step " + root.wiz-step + "/4";
                 color: root.muted-fg;
-                font-size: 9pt;
+                font-size: Theme.text-sm;
             }
 
                         // ---- step 1: identity ----
-            VerticalLayout { visible: root.wiz-step == 1; spacing: 8px;
-                Text { text: "ID"; color: root.muted-fg; font-size: 9pt; }
+            VerticalLayout { visible: root.wiz-step == 1; spacing: Theme.space-8;
+                Text { text: "ID"; color: root.muted-fg; font-size: Theme.text-sm; }
                 LineEdit {
                     text <=> root.wiz-id;
                     placeholder-text: "survival";
                     font-family: "Noto Sans Mono";
-                    font-size: 10pt;
+                    font-size: Theme.text-base;
                     accepted => { root.submit(); }
                 }
-                Text { text: "Display name (optional)"; color: root.muted-fg; font-size: 9pt; }
+                Text { text: "Display name (optional)"; color: root.muted-fg; font-size: Theme.text-sm; }
                 LineEdit {
                     text <=> root.wiz-name;
                     placeholder-text: "Survival";
-                    font-size: 10pt;
+                    font-size: Theme.text-base;
                     accepted => { root.submit(); }
                 }
-                Text { text: "Work dir"; color: root.muted-fg; font-size: 9pt; }
-                HorizontalLayout { spacing: 8px;
+                Text { text: "Work dir"; color: root.muted-fg; font-size: Theme.text-sm; }
+                HorizontalLayout { spacing: Theme.space-8;
                     LineEdit {
                         text <=> root.wiz-work-dir;
                         placeholder-text: "/srv/minecraft/survival";
                         font-family: "Noto Sans Mono";
-                        font-size: 10pt;
+                        font-size: Theme.text-base;
                         horizontal-stretch: 1;
                         accepted => { root.submit(); }
                     }
@@ -1090,13 +1643,13 @@ export component WizardWindow inherits Window {
                         clicked => { root.scan-workdir(); }
                     }
                 }
-                Text { visible: root.wiz-scan-note != ""; text: root.wiz-scan-note; color: root.muted-fg; font-size: 9pt; }
+                Text { visible: root.wiz-scan-note != ""; text: root.wiz-scan-note; color: root.muted-fg; font-size: Theme.text-sm; }
                 ErrorTextWiz { visible: root.wiz-error != ""; content: root.wiz-error; }
             }
 
             // ---- step 2: Java ----
-            VerticalLayout { visible: root.wiz-step == 2; spacing: 8px;
-                Text { text: "Java runtime"; color: root.muted-fg; font-size: 9pt; }
+            VerticalLayout { visible: root.wiz-step == 2; spacing: Theme.space-8;
+                Text { text: "Java runtime"; color: root.muted-fg; font-size: Theme.text-sm; }
                 ComboBox {
                     model: root.wiz-java-items;
                     current-value <=> root.wiz-java;
@@ -1112,7 +1665,7 @@ export component WizardWindow inherits Window {
                         text <=> root.wiz-java-custom;
                         placeholder-text: "/path/to/bin/java";
                         font-family: "Noto Sans Mono";
-                        font-size: 10pt;
+                        font-size: Theme.text-base;
                         horizontal-stretch: 1;
                         edited => { root.wiz-java = root.wiz-java-custom; }
                         accepted => { root.submit(); }
@@ -1122,29 +1675,29 @@ export component WizardWindow inherits Window {
             }
 
             // ---- step 3: RAM + preset ----
-            VerticalLayout { visible: root.wiz-step == 3; spacing: 8px;
-                HorizontalLayout { spacing: 8px;
-                    Text { text: "Min RAM (MiB)"; color: root.muted-fg; font-size: 9pt; width: 120px; }
+            VerticalLayout { visible: root.wiz-step == 3; spacing: Theme.space-8;
+                HorizontalLayout { spacing: Theme.space-8;
+                    Text { text: "Min RAM (MiB)"; color: root.muted-fg; font-size: Theme.text-sm; width: Theme.w-120; }
                     LineEdit {
                         text <=> root.wiz-min-ram;
                         placeholder-text: "256";
-                        font-size: 10pt;
-                        width: 120px;
+                        font-size: Theme.text-base;
+                        width: Theme.w-120;
                         accepted => { root.submit(); }
                     }
                 }
-                HorizontalLayout { spacing: 8px;
-                    Text { text: "Max RAM (MiB)"; color: root.muted-fg; font-size: 9pt; width: 120px; }
+                HorizontalLayout { spacing: Theme.space-8;
+                    Text { text: "Max RAM (MiB)"; color: root.muted-fg; font-size: Theme.text-sm; width: Theme.w-120; }
                     LineEdit {
                         text <=> root.wiz-max-ram;
                         placeholder-text: "512";
-                        font-size: 10pt;
-                        width: 120px;
+                        font-size: Theme.text-base;
+                        width: Theme.w-120;
                         accepted => { root.submit(); }
                     }
                 }
-                HorizontalLayout { spacing: 8px;
-                    Text { text: "Preset"; color: root.muted-fg; font-size: 9pt; width: 120px; }
+                HorizontalLayout { spacing: Theme.space-8;
+                    Text { text: "Preset"; color: root.muted-fg; font-size: Theme.text-sm; width: Theme.w-120; }
                     ComboBox {
                         model: ["none", "aikar", "custom"];
                         current-value <=> root.wiz-preset;
@@ -1155,21 +1708,21 @@ export component WizardWindow inherits Window {
             }
 
             // ---- step 4: launch mode / args / review ----
-            VerticalLayout { visible: root.wiz-step == 4; spacing: 8px;
-                HorizontalLayout { spacing: 8px;
-                    Text { text: "Launch mode"; color: root.muted-fg; font-size: 9pt; width: 120px; }
+            VerticalLayout { visible: root.wiz-step == 4; spacing: Theme.space-8;
+                HorizontalLayout { spacing: Theme.space-8;
+                    Text { text: "Launch mode"; color: root.muted-fg; font-size: Theme.text-sm; width: Theme.w-120; }
                     ComboBox {
                         model: ["jar", "args-file", "custom"];
                         current-value <=> root.wiz-launch-mode;
                         horizontal-stretch: 1;
                     }
                 }
-                Text { text: "Launch args"; color: root.muted-fg; font-size: 9pt; }
+                Text { text: "Launch args"; color: root.muted-fg; font-size: Theme.text-sm; }
                 LineEdit {
                     text <=> root.wiz-launch-args;
                     placeholder-text: "-jar server.jar nogui";
                     font-family: "Noto Sans Mono";
-                    font-size: 10pt;
+                    font-size: Theme.text-base;
                     accepted => { root.submit(); }
                 }
                 CheckBox {
@@ -1180,13 +1733,13 @@ export component WizardWindow inherits Window {
                     text: "Final: -Xms" + root.wiz-min-ram + " -Xmx" + root.wiz-max-ram
                         + (root.wiz-preset == "aikar" ? " (Aikar's flags)" : "");
                     color: root.muted-fg;
-                    font-size: 9pt;
+                    font-size: Theme.text-sm;
                 }
                 ErrorTextWiz { visible: root.wiz-error != ""; content: root.wiz-error; }
             }
 
 // ---- actions ----
-            HorizontalLayout { spacing: 8px;
+            HorizontalLayout { spacing: Theme.space-8;
                 BtnWiz {
                     label: "Back";
                     primary: false;
