@@ -464,7 +464,7 @@ export component App inherits Window {
                                             : (ta.has-hover ? Theme.card-hover : transparent);
                                         HorizontalLayout {
                                             padding-left: Theme.space-8;
-                                            padding-right: Theme.space-8;
+                                            padding-right: Theme.space-12;
                                             spacing: Theme.space-8;
                                             Rectangle {
                                                 width: Theme.space-8;
@@ -557,23 +557,32 @@ export component App inherits Window {
                                 font-size: Theme.text-xl;
                                 overflow: elide;
                             }
-                            Text {
-                                text: root.instance-name == "" ? "" : root.instance-state;
-                                color: root.state-color(root.instance-code);
-                                font-size: Theme.text-xs;
-                            }
-                            // stats strip: "12/20 players · 1.21.1" (blank
-                            // while nothing is selected / unknown fields)
-                            Text {
-                                text: root.instance-name == "" ? "" : (
-                                    root.instance-players == "" && root.instance-version == ""
-                                    ? ""
-                                    : (root.instance-players == "" ? "— players" : root.instance-players)
-                                      + " · "
-                                      + (root.instance-version == "" ? "—" : root.instance-version)
-                                );
-                                color: Theme.muted-fg;
-                                font-size: Theme.text-xs;
+                            // state + stats share one line so the 40px top bar
+                            // fits name + one secondary row without clipping.
+                            HorizontalLayout {
+                                visible: root.instance-name != "";
+                                spacing: Theme.space-6;
+                                Text {
+                                    text: root.instance-state;
+                                    color: root.state-color(root.instance-code);
+                                    font-size: Theme.text-xs;
+                                    vertical-alignment: center;
+                                }
+                                // stats strip: "· 12/20 players · 1.21.1" (blank
+                                // while unknown fields)
+                                Text {
+                                    text: (root.instance-players == "" && root.instance-version == ""
+                                        ? ""
+                                        : "· "
+                                          + (root.instance-players == "" ? "— players" : root.instance-players)
+                                          + " · "
+                                          + (root.instance-version == "" ? "—" : root.instance-version));
+                                    color: Theme.muted-fg;
+                                    font-size: Theme.text-xs;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
                             }
                         }
                         Rectangle { horizontal-stretch: 1; }
@@ -634,7 +643,7 @@ export component App inherits Window {
                     // ---- console panel: header/body/stdin as direct layout children (chunk-1 style) ----
                     // console header
                             HorizontalLayout {
-                                height: Theme.space-24;
+                                height: Theme.h-32;
                                 spacing: Theme.space-8;
                                 Rectangle { width: Theme.divider; }
                                 Text {
@@ -673,8 +682,11 @@ export component App inherits Window {
                                 lv := ListView {
                                     x: 0;
                                     y: 0;
-                                    width: parent.width;
-                                    height: parent.height;
+                                    // Leave the scrollbar gutter free and a
+                                    // hairline bottom inset so the last row is
+                                    // not clipped by the body border.
+                                    width: parent.width - Theme.vsep;
+                                    height: parent.height - Theme.divider;
                                     for line[i] in root.lines: Rectangle {
                                         height: Theme.line-h;
                                         width: 100%;
