@@ -289,6 +289,45 @@ pub fn resolve_java_path(selection: &str, custom: &str) -> Result<String, String
     Ok(selection.to_string())
 }
 
+/// True when the daemon's config view carries `java_wrapper`.
+///
+/// Daemons built before the java_wrapper feature omit the key and their
+/// patch handler silently ignores unknown keys. The GUI must detect that
+/// and warn instead of reporting a successful save that will vanish on
+/// the next reload.
+pub fn config_view_has_java_wrapper(value: &Value) -> bool {
+    value.get("java_wrapper").is_some()
+}
+
+/// Value to prefill in the custom-path field. A stored path that is not
+/// one of the standard/detected runtimes is the user's custom path, so
+/// selecting "Custom path…" again must show it for further editing.
+pub fn custom_java_value(java_path: &str, detected: &[String]) -> String {
+    let path = java_path.trim();
+    if path.is_empty()
+        || path == "java"
+        || path.contains('\u{2026}')
+        || detected.iter().any(|d| d == path)
+    {
+        String::new()
+    } else {
+        path.to_string()
+    }
+}
+
+/// Make a config-save error actionable. Older daemons may reject the
+/// `java_wrapper` key as unknown; the user needs to know the daemon must
+/// be restarted with the new build instead of silently losing the field.
+pub fn config_save_error_text(error: &str) -> String {
+    let lower = error.to_lowercase();
+    if lower.contains("unknown field") || lower.contains("java_wrapper") {
+        "Daemon is outdated: it rejected java_wrapper. Restart minewrapd with the new build, then reopen Settings and Save again."
+            .to_string()
+    } else {
+        error.to_string()
+    }
+}
+
 /// Settings panel form state, mirroring `InstanceConfig`'s view shape
 /// (`GET …/config` → `instance_view`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -298,6 +337,9 @@ pub struct SettingsForm {
     pub work_dir: String,
     pub java_path: String,
     /// argv placed before `java_path` (space-separated in the UI).
+    ///
+    /// Uses `split_whitespace` on save, so wrapper elements whose values
+    /// contain spaces are unsupported in this UI revision.
     pub java_wrapper: String,
     pub min_ram_mb: u32,
     pub max_ram_mb: u32,
@@ -1005,13 +1047,110 @@ mod tests {
 
     #[test]
     fn settings_dirty_snapshot_changes_on_edit() {
-        let form = wizard_base();
+        let form = settings_base();
         let snap1 = form.snapshot();
         let mut edited = form.clone();
         edited.name = "Renamed".to_string();
         assert_ne!(snap1, edited.snapshot());
-        assert_eq!(form.validate(&[]), Ok(()));
-        assert_eq!(edited.validate(&[]), Ok(()));
+        assert_eq!(form.validate(), Ok(()));
+        assert_eq!(edited.validate(), Ok(()));
+    }
+
+    #[test]
+    fn settings_dirty_snapshot_includes_java_wrapper() {
+        // B1 regression: the wrapper must participate in dirty tracking,
+        // otherwise "Save" stays disabled after editing only the wrapper.
+        let form = settings_base();
+        let snap1 = form.snapshot();
+        let mut edited = form.clone();
+        edited.java_wrapper =
+            "env LD_PRELOAD=/usr/lib64/libmimalloc.so.2 MALLOC_ARENA_MAX=2".into();
+        assert_ne!(snap1, edited.snapshot());
+    }
+
+    #[test]
+    fn java_wrapper_round_trips_through_view_and_patch() {
+        // B4: multi-env wrapper joins with single spaces in the view and
+        // splits on whitespace in the patch (space-containing values are
+        // explicitly unsupported — documented on the field/UI hint).
+        let mut form = settings_base();
+        form.java_wrapper =
+            "env LD_PRELOAD=/usr/lib64/libmimalloc.so.2 MALLOC_ARENA_MAX=2".into();
+        let patch = form.to_patch();
+        assert_eq!(
+            patch.get("java_wrapper"),
+            Some(&serde_json::json!([
+                "env",
+                "LD_PRELOAD=/usr/lib64/libmimalloc.so.2",
+                "MALLOC_ARENA_MAX=2"
+            ]))
+        );
+
+        // Simulate GET …/config: merge the patch into a view-shaped object.
+        let mut view = serde_json::json!({ "id": "survival" });
+        if let (Some(view), Some(patch)) = (view.as_object_mut(), patch.as_object()) {
+            for (k, v) in patch {
+                view.insert(k.clone(), v.clone());
+            }
+        }
+        let parsed = SettingsForm::from_view(&view);
+        assert_eq!(parsed.java_wrapper, form.java_wrapper);
+        assert_eq!(parsed.to_patch().get("java_wrapper"), Some(&serde_json::json!([
+            "env",
+            "LD_PRELOAD=/usr/lib64/libmimalloc.so.2",
+            "MALLOC_ARENA_MAX=2"
+        ])));
+
+        // B5: an empty wrapper still sends an empty array (clears it).
+        let mut cleared = form.clone();
+        cleared.java_wrapper.clear();
+        assert_eq!(
+            cleared.to_patch().get("java_wrapper"),
+            Some(&serde_json::json!([]))
+        );
+    }
+
+    #[test]
+    fn daemon_config_view_wrapper_support_is_detected() {
+        // B3: daemons with the feature return the key even when empty;
+        // older daemons omit it entirely (and silently drop the patch).
+        let old = serde_json::json!({ "id": "survival", "java_path": "java" });
+        assert!(!config_view_has_java_wrapper(&old));
+        let new = serde_json::json!({
+            "id": "survival",
+            "java_path": "java",
+            "java_wrapper": []
+        });
+        assert!(config_view_has_java_wrapper(&new));
+    }
+
+    #[test]
+    fn custom_java_value_prefills_only_custom_paths() {
+        let detected = vec!["/usr/lib/jvm/temurin-21/bin/java".to_string()];
+        assert_eq!(
+            custom_java_value("/opt/jdk/bin/java", &detected),
+            "/opt/jdk/bin/java"
+        );
+        assert_eq!(
+            custom_java_value("/usr/lib/jvm/temurin-21/bin/java", &detected),
+            ""
+        );
+        assert_eq!(custom_java_value("java", &detected), "");
+        assert_eq!(custom_java_value("  ", &detected), "");
+        assert_eq!(custom_java_value(JAVA_CUSTOM_LABEL, &detected), "");
+    }
+
+    #[test]
+    fn outdated_daemon_save_error_is_actionable() {
+        let mapped =
+            config_save_error_text("update config: 400 unknown field `java_wrapper`");
+        assert!(mapped.contains("Restart minewrapd"));
+        assert!(mapped.contains("java_wrapper"));
+        // Unrelated errors pass through unchanged.
+        assert_eq!(
+            config_save_error_text("update config: connection refused"),
+            "update config: connection refused"
+        );
     }
 
     #[test]

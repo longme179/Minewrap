@@ -23,7 +23,8 @@ use std::time::Duration;
 
 use minewrap_remote::types::{InstanceSummaryDto, LogLineDto};
 use minewrap_gui::config_view::{
-    DiscordForm, RAM_MIN_MB, SettingsForm, WizardForm, resolve_java_path,
+    DiscordForm, RAM_MIN_MB, SettingsForm, WizardForm, config_save_error_text,
+    config_view_has_java_wrapper, custom_java_value, resolve_java_path,
 };
 use minewrap_gui::nodes::{self, NodeInstances, NodeService, LOCAL_NODE_ID};
 use minewrap_gui::runtime::{self, Cmd, UiMsg};
@@ -1741,16 +1742,29 @@ fn main() -> Result<(), slint::PlatformError> {
                         }
                     }
                     UiMsg::ConfigSaved(Ok(())) => {
-                        if let Ok(form) = read_settings_form(&ui) {
-                            st.settings_saved = form.snapshot();
+                        // Older daemons answer 200 but drop java_wrapper.
+                        // Never claim success for a value they cannot store.
+                        if !ui.get_settings_wrapper_supported()
+                            && !ui.get_settings_java_wrapper().trim().is_empty()
+                        {
+                            st.settings_dirty = true;
+                            ui.set_settings_dirty(true);
+                            ui.set_settings_error(
+                                config_save_error_text("java_wrapper").into(),
+                            );
+                            ui.set_settings_status("".into());
+                        } else {
+                            if let Ok(form) = read_settings_form(&ui) {
+                                st.settings_saved = form.snapshot();
+                            }
+                            st.settings_dirty = false;
+                            ui.set_settings_dirty(false);
+                            ui.set_settings_error("".into());
+                            ui.set_settings_status("Saved.".into());
                         }
-                        st.settings_dirty = false;
-                        ui.set_settings_dirty(false);
-                        ui.set_settings_error("".into());
-                        ui.set_settings_status("Saved.".into());
                     }
                     UiMsg::ConfigSaved(Err(e)) => {
-                        ui.set_settings_error(e.into());
+                        ui.set_settings_error(config_save_error_text(&e).into());
                         ui.set_settings_loading(false);
                     }
                     UiMsg::PropertiesFetched(Ok(value)) => {
@@ -1933,10 +1947,20 @@ fn apply_settings(ui: &App, state: &mut State, value: &serde_json::Value) {
     let form = SettingsForm::from_view(value);
     state.settings_saved = form.snapshot();
     let items = java_items_with(state, &form.java_path);
+    // A custom path (one that matches no detected runtime) is also kept in
+    // the editable field so selecting "Custom path…" again shows it.
+    let detected: Vec<String> = state
+        .java_runtimes
+        .iter()
+        .map(|rt| rt.binary.clone())
+        .collect();
+    let custom = custom_java_value(&form.java_path, &detected);
+    ui.set_settings_wrapper_supported(config_view_has_java_wrapper(value));
     ui.set_settings_java_items(items.into());
     ui.set_settings_name(form.name.into());
     ui.set_settings_work_dir(form.work_dir.into());
     ui.set_settings_java(form.java_path.into());
+    ui.set_settings_java_custom(custom.into());
     ui.set_settings_java_wrapper(form.java_wrapper.into());
     ui.set_settings_min_ram(form.min_ram_mb.to_string().into());
     ui.set_settings_max_ram(form.max_ram_mb.to_string().into());
