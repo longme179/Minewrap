@@ -1,5 +1,25 @@
 # Release notes
 
+## v1.11.0
+
+- **Java wrapper support.** Instances can now specify an argv prefix before
+  the Java binary, for example
+  `env LD_PRELOAD=/usr/lib64/libmimalloc.so.2 MALLOC_ARENA_MAX=2`.
+  Multiple elements are separated by whitespace, persist through Save and
+  tab switches, and clearing the field clears the wrapper server-side.
+  This requires the new daemon: an older daemon silently drops the
+  `java_wrapper` key, so the GUI detects that the config view lacks it,
+  refuses to claim “Saved”, and shows a message to restart `minewrapd`.
+  Wrapper values containing spaces are not supported yet.
+- **Custom Java path fixes.** The custom-path input row now stays visible
+  while typing (it previously vanished on the first keystroke), and a
+  saved custom path is prefilled when “Custom path…” is selected again.
+- **GUI layout fixes.** Corrected top-bar, console and sidebar overlaps,
+  and widened outer margins to 16px so the status bar, Remove button and
+  sidebar no longer sit flush against the window edge.
+
+Since v1.10.0: daemon-first base unchanged; all changes GUI-side + additive config field.
+
 ## v1.10.0 — P0 daemon-first (BREAKING: closing the GUI no longer stops servers)
 
 **The daemon is now the always-on half; the GUI is a pure client.**
