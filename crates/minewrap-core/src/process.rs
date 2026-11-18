@@ -102,6 +102,18 @@ fn state_str(state: ProcessState) -> String {
 pub const BATCH_INTERVAL_MS: u64 = 40;
 pub const BATCH_MAX_LINES: usize = 100;
 
+/// Build the child argv: `[java_wrapper..., java_path, jvm_args..., launch_args...]`.
+pub fn build_argv(config: &InstanceConfig) -> Vec<String> {
+    let mut parts = Vec::with_capacity(
+        config.java_wrapper.len() + 1 + config.jvm_args.len() + config.launch_args.len(),
+    );
+    parts.extend(config.java_wrapper.iter().cloned());
+    parts.push(config.java_path.clone());
+    parts.extend(config.jvm_args.iter().cloned());
+    parts.extend(config.launch_args.iter().cloned());
+    parts
+}
+
 /// Spawn the fake/real server and return `(child)`. The piped stdout/stderr
 /// are copied into one bounded channel; the reader task is owned by the caller.
 pub async fn spawn_server(
@@ -115,12 +127,7 @@ pub async fn spawn_server(
         return Err(format!("work dir is not a directory: {}", config.work_dir));
     }
 
-    let argv: Vec<String> = {
-        let mut parts = vec![config.java_path.clone()];
-        parts.extend(config.jvm_args.iter().cloned());
-        parts.extend(config.launch_args.iter().cloned());
-        parts
-    };
+    let argv = build_argv(config);
     let mut command = Command::new(&argv[0]);
     command.args(&argv[1..]);
     command.current_dir(work_dir);
@@ -132,10 +139,13 @@ pub async fn spawn_server(
     command.process_group(0);
 
     let mut child = command.spawn().map_err(|e| {
+        // Name the actual program (argv[0], i.e. wrapper[0] when a wrapper
+        // is configured) plus the full command for context.
         format!(
-            "failed to start `{}` in `{}`: {e}",
-            argv.join(" "),
-            config.work_dir
+            "failed to start `{}` in `{}` (command: `{}`): {e}",
+            argv[0],
+            config.work_dir,
+            argv.join(" ")
         )
     })?;
     let stdout = child.stdout.take().expect("stdout piped");
@@ -709,6 +719,79 @@ mod tests {
         assert!(allowed_next(ProcessState::Crashed).contains(&ProcessState::Starting));
     }
 
+    fn argv_config(java_wrapper: Vec<&str>, java_path: &str) -> InstanceConfig {
+        InstanceConfig {
+            id: "argv".into(),
+            name: String::new(),
+            work_dir: "/tmp".into(),
+            java_path: java_path.into(),
+            java_wrapper: java_wrapper.into_iter().map(String::from).collect(),
+            jvm_args: vec!["-Xms1G".into(), "-Xmx2G".into()],
+            launch_args: vec!["-jar".into(), "server.jar".into(), "nogui".into()],
+            autostart: false,
+            probe: crate::config::ProbeConfig::default(),
+            restart: crate::config::RestartConfig::default(),
+            rcon: None,
+            discord: crate::config::DiscordConfig::default(),
+        }
+    }
+
+    #[test]
+    fn build_argv_without_wrapper_keeps_legacy_order() {
+        let argv = build_argv(&argv_config(vec![], "java"));
+        assert_eq!(
+            argv,
+            ["java", "-Xms1G", "-Xmx2G", "-jar", "server.jar", "nogui"]
+        );
+    }
+
+    #[test]
+    fn build_argv_places_wrapper_before_java() {
+        let argv = build_argv(&argv_config(
+            vec!["env", "LD_PRELOAD=/usr/lib64/libmimalloc.so.2"],
+            "/usr/bin/java",
+        ));
+        assert_eq!(
+            argv,
+            [
+                "env",
+                "LD_PRELOAD=/usr/lib64/libmimalloc.so.2",
+                "/usr/bin/java",
+                "-Xms1G",
+                "-Xmx2G",
+                "-jar",
+                "server.jar",
+                "nogui",
+            ]
+        );
+    }
+
+    #[test]
+    fn build_argv_keeps_multi_token_wrapper_order() {
+        let argv = build_argv(&argv_config(
+            vec!["nice", "-n", "5", "ionice", "-c", "3"],
+            "java",
+        ));
+        assert_eq!(
+            &argv[..8],
+            ["nice", "-n", "5", "ionice", "-c", "3", "java", "-Xms1G"]
+        );
+    }
+
+    #[tokio::test]
+    async fn spawn_error_names_missing_wrapper_program() {
+        let mut cfg = argv_config(vec!["minewrap-no-such-wrapper-program"], "java");
+        cfg.work_dir = std::env::temp_dir().to_string_lossy().into_owned();
+        let err = match spawn_server(&cfg).await {
+            Ok(_) => panic!("wrapper binary does not exist, spawn must fail"),
+            Err(e) => e,
+        };
+        assert!(
+            err.contains("`minewrap-no-such-wrapper-program`"),
+            "error must name wrapper[0]: {err}"
+        );
+    }
+
     /// GapF regression (v1.9.3): `Control::Start` with a failing spawn
     /// used to hit the `Offline -> Crashed` assert and kill the owner
     /// task. It must instead publish a same-state `spawn_failed` event
@@ -723,6 +806,7 @@ mod tests {
             name: String::new(),
             work_dir: "/nonexistent-minewrap-test-dir".into(),
             java_path: "java".into(),
+            java_wrapper: vec![],
             jvm_args: vec![],
             launch_args: vec![],
             autostart: false,

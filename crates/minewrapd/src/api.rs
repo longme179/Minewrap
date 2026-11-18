@@ -484,6 +484,7 @@ async fn get_config(
                 "name": cfg.display_name(),
                 "work_dir": cfg.work_dir,
                 "java_path": cfg.java_path,
+                "java_wrapper": cfg.java_wrapper,
                 "jvm_args": cfg.jvm_args,
                 "launch_args": cfg.launch_args,
                 "autostart": cfg.autostart,

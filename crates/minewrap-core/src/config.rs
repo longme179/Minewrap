@@ -428,6 +428,9 @@ pub struct InstanceConfig {
     pub work_dir: String,
     #[serde(default = "default_java")]
     pub java_path: String,
+    /// argv placed before `java_path` when spawning (empty = legacy).
+    #[serde(default)]
+    pub java_wrapper: Vec<String>,
     #[serde(default)]
     pub jvm_args: Vec<String>,
     #[serde(default = "default_launch_args")]
@@ -611,6 +614,7 @@ impl DaemonConfig {
             "name": cfg.display_name(),
             "work_dir": cfg.work_dir,
             "java_path": cfg.java_path,
+            "java_wrapper": cfg.java_wrapper,
             "jvm_args": cfg.jvm_args,
             "launch_args": cfg.launch_args,
             "autostart": cfg.autostart,
@@ -652,9 +656,22 @@ impl DaemonConfig {
             }
         }
         if let Some(v) = patch.get("java_path").and_then(|v| v.as_str()) {
-            if !v.trim().is_empty() {
-                inst.java_path = v.trim().to_string();
+            let v = v.trim();
+            // Clients must resolve the GUI's "Custom path…" sentinel before
+            // patching; reject empty/placeholder values from any client.
+            if v.is_empty() || v.contains('\u{2026}') {
+                return Err("java_path looks like a UI placeholder".to_string());
             }
+            inst.java_path = v.to_string();
+        }
+        if let Some(v) = patch.get("java_wrapper").and_then(|v| v.as_array()) {
+            inst.java_wrapper = v
+                .iter()
+                .filter_map(|x| x.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .collect();
         }
         if let Some(v) = patch.get("jvm_args").and_then(|v| v.as_array()) {
             inst.jvm_args = v
@@ -866,6 +883,7 @@ interval_seconds = 0.05
             name: "".into(),
             work_dir: "server".into(),
             java_path: "java".into(),
+            java_wrapper: vec![],
             jvm_args: vec![],
             launch_args: vec![],
             autostart: false,
@@ -885,5 +903,66 @@ interval_seconds = 0.05
                 .collect::<Vec<_>>()
         );
         assert_eq!(cfg.instances[0].work_dir, "/tmp/cfg/server");
+    }
+
+    fn config_with_instance() -> DaemonConfig {
+        let mut cfg = DaemonConfig::default();
+        cfg.instances.push(InstanceConfig {
+            id: "survival".into(),
+            name: String::new(),
+            work_dir: "/tmp".into(),
+            java_path: "java".into(),
+            java_wrapper: vec![],
+            jvm_args: vec![],
+            launch_args: vec![],
+            autostart: false,
+            probe: ProbeConfig::default(),
+            restart: RestartConfig::default(),
+            rcon: None,
+            discord: DiscordConfig::default(),
+        });
+        cfg
+    }
+
+    #[test]
+    fn patch_instance_rejects_java_placeholder() {
+        for bad in [
+            "",
+            "   ",
+            "Custom path…",
+            "/usr/lib/jvm/custom…/java",
+            "…",
+        ] {
+            let mut cfg = config_with_instance();
+            let err = cfg
+                .patch_instance("survival", serde_json::json!({ "java_path": bad }))
+                .unwrap_err();
+            assert_eq!(
+                err, "java_path looks like a UI placeholder",
+                "input {bad:?}"
+            );
+            assert_eq!(
+                cfg.instances[0].java_path, "java",
+                "rejected patch must not mutate the config"
+            );
+        }
+    }
+
+    #[test]
+    fn patch_instance_sets_and_clears_java_wrapper() {
+        let mut cfg = config_with_instance();
+        cfg.patch_instance(
+            "survival",
+            serde_json::json!({ "java_wrapper": ["env", "LD_PRELOAD=/usr/lib64/libmimalloc.so.2"] }),
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.instances[0].java_wrapper,
+            ["env", "LD_PRELOAD=/usr/lib64/libmimalloc.so.2"]
+        );
+
+        cfg.patch_instance("survival", serde_json::json!({ "java_wrapper": [] }))
+            .unwrap();
+        assert!(cfg.instances[0].java_wrapper.is_empty());
     }
 }

@@ -269,6 +269,26 @@ impl WizardForm {
     }
 }
 
+/// Java runtime combo label for a user-supplied binary. It is UI-only and
+/// must never be persisted as `java_path`.
+pub const JAVA_CUSTOM_LABEL: &str = "Custom path…";
+
+/// Resolve the Java runtime combo selection into the value persisted as
+/// `java_path`. The `"Custom path…"` sentinel (or any stray U+2026 from a
+/// malformed selection) resolves to the custom-path field, which must be
+/// non-empty.
+pub fn resolve_java_path(selection: &str, custom: &str) -> Result<String, String> {
+    let selection = selection.trim();
+    if selection == JAVA_CUSTOM_LABEL || selection.contains('\u{2026}') {
+        let custom = custom.trim();
+        if custom.is_empty() {
+            return Err("Custom java path is required.".to_string());
+        }
+        return Ok(custom.to_string());
+    }
+    Ok(selection.to_string())
+}
+
 /// Settings panel form state, mirroring `InstanceConfig`'s view shape
 /// (`GET …/config` → `instance_view`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -277,6 +297,8 @@ pub struct SettingsForm {
     pub name: String,
     pub work_dir: String,
     pub java_path: String,
+    /// argv placed before `java_path` (space-separated in the UI).
+    pub java_wrapper: String,
     pub min_ram_mb: u32,
     pub max_ram_mb: u32,
     pub preset: String,
@@ -296,6 +318,13 @@ pub struct SettingsForm {
 }
 
 impl SettingsForm {
+    /// Resolve the Java combo selection (including the `"Custom path…"`
+    /// sentinel) into the real `java_path` stored in this form.
+    pub fn set_java_selection(&mut self, selection: &str, custom: &str) -> Result<(), String> {
+        self.java_path = resolve_java_path(selection, custom)?;
+        Ok(())
+    }
+
     pub fn from_view(value: &Value) -> Self {
         let jvm_args: Vec<String> = value
             .get("jvm_args")
@@ -338,6 +367,16 @@ impl SettingsForm {
                 .and_then(|v| v.as_str())
                 .unwrap_or("java")
                 .to_string(),
+            java_wrapper: value
+                .get("java_wrapper")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default(),
             min_ram_mb: min_ram,
             max_ram_mb: max_ram,
             preset,
@@ -417,6 +456,13 @@ impl SettingsForm {
                 Value::String(self.java_path.clone()),
             );
         }
+        // Always send the wrapper (empty array clears it).
+        let wrapper: Vec<Value> = self
+            .java_wrapper
+            .split_whitespace()
+            .map(|a| Value::String(a.to_string()))
+            .collect();
+        map.insert("java_wrapper".to_string(), Value::Array(wrapper));
         map.insert("jvm_args".to_string(), Value::Array(jvm_args));
         let args: Vec<Value> = self
             .launch_args
@@ -479,6 +525,9 @@ impl SettingsForm {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if self.java_path.contains('\u{2026}') {
+            return Err("Custom java path is required.".to_string());
+        }
         for (label, mb) in [("Min RAM", self.min_ram_mb), ("Max RAM", self.max_ram_mb)] {
             if mb < RAM_MIN_MB || mb > RAM_MAX_MB {
                 return Err(format!("{label} must be between 256 and 65536 MiB."));
@@ -648,6 +697,104 @@ mod tests {
         }
     }
 
+    fn settings_base() -> SettingsForm {
+        SettingsForm {
+            id: "survival".into(),
+            name: "Survival".into(),
+            work_dir: "/srv/minecraft/survival".into(),
+            java_path: "/usr/lib/jvm/bin/java".into(),
+            java_wrapper: String::new(),
+            min_ram_mb: 1024,
+            max_ram_mb: 8192,
+            preset: "none".into(),
+            jvm_extra: String::new(),
+            launch_mode: "jar".into(),
+            launch_args: "-jar server.jar nogui".into(),
+            autostart: false,
+            probe_host: "127.0.0.1".into(),
+            probe_port: 25565,
+            probe_query_enabled: false,
+            probe_timeout: 3.0,
+            restart_policy: "on-crash".into(),
+            restart_max_retries: 5,
+            restart_backoff_base: 5.0,
+            restart_backoff_max: 300.0,
+            restart_reset_after: 600.0,
+        }
+    }
+
+    #[test]
+    fn java_custom_placeholder_resolves_to_custom_path() {
+        assert_eq!(
+            resolve_java_path("Custom path…", "  /usr/bin/java  ").unwrap(),
+            "/usr/bin/java"
+        );
+        assert_eq!(resolve_java_path("java", "").unwrap(), "java");
+        assert_eq!(
+            resolve_java_path("Custom path…", "   ").unwrap_err(),
+            "Custom java path is required."
+        );
+    }
+
+    #[test]
+    fn settings_form_resolves_custom_java_before_patch() {
+        let mut form = settings_base();
+        form.set_java_selection("Custom path…", "/opt/jdk/bin/java")
+            .unwrap();
+        let patch = form.to_patch();
+        assert_eq!(
+            patch.get("java_path").and_then(|v| v.as_str()),
+            Some("/opt/jdk/bin/java")
+        );
+        assert!(
+            !patch.to_string().contains('…'),
+            "placeholder must never reach the daemon: {patch}"
+        );
+    }
+
+    #[test]
+    fn wizard_custom_java_resolves_before_create_payload() {
+        let mut form = wizard_base();
+        form.java_path = resolve_java_path("Custom path…", "/opt/java/bin/java").unwrap();
+        let payload = form.to_create_payload();
+        assert_eq!(
+            payload.get("java_path").and_then(|v| v.as_str()),
+            Some("/opt/java/bin/java")
+        );
+        assert!(!payload.to_string().contains('…'));
+    }
+
+    #[test]
+    fn settings_patch_emits_java_wrapper_argv() {
+        let mut form = settings_base();
+        form.java_wrapper = "env LD_PRELOAD=/usr/lib64/libmimalloc.so.2".into();
+        let patch = form.to_patch();
+        assert_eq!(
+            patch.get("java_wrapper"),
+            Some(&serde_json::json!(["env", "LD_PRELOAD=/usr/lib64/libmimalloc.so.2"]))
+        );
+
+        // Empty wrapper must still be sent so the daemon can clear it.
+        form.java_wrapper = String::new();
+        assert_eq!(
+            form.to_patch().get("java_wrapper"),
+            Some(&serde_json::json!([]))
+        );
+    }
+
+    #[test]
+    fn settings_from_view_reads_java_wrapper() {
+        let view = serde_json::json!({
+            "java_path": "java",
+            "java_wrapper": ["env", "LD_PRELOAD=/usr/lib64/libmimalloc.so.2"],
+        });
+        let form = SettingsForm::from_view(&view);
+        assert_eq!(
+            form.java_wrapper,
+            "env LD_PRELOAD=/usr/lib64/libmimalloc.so.2"
+        );
+    }
+
     #[test]
     fn wizard_create_payload_has_all_known_fields() {
         let form = wizard_base();
@@ -757,6 +904,7 @@ mod tests {
             name: "Survival".into(),
             work_dir: "/srv/minecraft/survival".into(),
             java_path: "/usr/lib/jvm/bin/java".into(),
+            java_wrapper: "env LD_PRELOAD=/usr/lib64/libmimalloc.so.2".into(),
             min_ram_mb: 1024,
             max_ram_mb: 8192,
             preset: "custom".into(),
@@ -784,6 +932,7 @@ mod tests {
             "name": form.name,
             "work_dir": form.work_dir,
             "java_path": form.java_path,
+            "java_wrapper": view.get("java_wrapper"),
             "jvm_args": view.get("jvm_args"),
             "launch_args": view.get("launch_args"),
             "autostart": form.autostart,
@@ -794,6 +943,7 @@ mod tests {
         assert_eq!(parsed.name, form.name);
         assert_eq!(parsed.work_dir, form.work_dir);
         assert_eq!(parsed.java_path, form.java_path);
+        assert_eq!(parsed.java_wrapper, form.java_wrapper);
         assert_eq!(parsed.min_ram_mb, form.min_ram_mb);
         assert_eq!(parsed.max_ram_mb, form.max_ram_mb);
         assert_eq!(parsed.preset, form.preset);
@@ -821,6 +971,7 @@ mod tests {
             name: "Survival".into(),
             work_dir: "/srv/minecraft/survival".into(),
             java_path: "/usr/lib/jvm/bin/java".into(),
+            java_wrapper: "env LD_PRELOAD=/usr/lib64/libmimalloc.so.2".into(),
             min_ram_mb: 1024,
             max_ram_mb: 8192,
             preset: "custom".into(),
@@ -840,7 +991,7 @@ mod tests {
         };
         let p = form.to_patch();
         let obj = p.as_object().unwrap();
-        for key in ["name", "work_dir", "java_path", "jvm_args", "launch_args",
+        for key in ["name", "work_dir", "java_path", "java_wrapper", "jvm_args", "launch_args",
                     "autostart", "probe", "restart"] {
             assert!(obj.contains_key(key), "missing {key}");
         }

@@ -22,7 +22,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use minewrap_remote::types::{InstanceSummaryDto, LogLineDto};
-use minewrap_gui::config_view::{DiscordForm, RAM_MIN_MB, SettingsForm, WizardForm};
+use minewrap_gui::config_view::{
+    DiscordForm, RAM_MIN_MB, SettingsForm, WizardForm, resolve_java_path,
+};
 use minewrap_gui::nodes::{self, NodeInstances, NodeService, LOCAL_NODE_ID};
 use minewrap_gui::runtime::{self, Cmd, UiMsg};
 use slint::{ModelRc, SharedString, Timer, TimerMode, VecModel};
@@ -675,16 +677,19 @@ fn format_size(bytes: u64) -> String {
     format!("{:.1} {}", size, UNITS[unit])
 }
 
-/// Read the live Settings form from Slint properties.
-fn read_settings_form(ui: &App) -> SettingsForm {
+/// Read the live Settings form from Slint properties. The Java combo's
+/// `"Custom path…"` sentinel is resolved to the custom-path field here so
+/// the placeholder can never be persisted as `java_path`.
+fn read_settings_form(ui: &App) -> Result<SettingsForm, String> {
     let parse_u16 = |s: &str, def: u16| s.parse().unwrap_or(def);
     let parse_u32 = |s: &str, def: u32| s.parse().unwrap_or(def);
     let parse_f64 = |s: &str, def: f64| s.parse().unwrap_or(def);
-    SettingsForm {
+    let mut form = SettingsForm {
         id: ui.get_selected_id().to_string(),
         name: ui.get_settings_name().to_string(),
         work_dir: ui.get_settings_work_dir().to_string(),
-        java_path: ui.get_settings_java().to_string(),
+        java_path: String::new(),
+        java_wrapper: ui.get_settings_java_wrapper().to_string(),
         min_ram_mb: parse_u32(&ui.get_settings_min_ram(), RAM_MIN_MB),
         max_ram_mb: parse_u32(&ui.get_settings_max_ram(), RAM_MIN_MB),
         preset: ui.get_settings_preset().to_string(),
@@ -701,13 +706,22 @@ fn read_settings_form(ui: &App) -> SettingsForm {
         restart_backoff_base: parse_f64(&ui.get_settings_restart_backoff_base(), 5.0),
         restart_backoff_max: parse_f64(&ui.get_settings_restart_backoff_max(), 300.0),
         restart_reset_after: parse_f64(&ui.get_settings_restart_reset_after(), 600.0),
-    }
+    };
+    form.set_java_selection(
+        &ui.get_settings_java(),
+        &ui.get_settings_java_custom(),
+    )?;
+    Ok(form)
 }
 
 /// Recompute the dirty flag from the live form vs the loaded snapshot.
 fn refresh_dirty(ui: &App, state: &mut State) {
     let dirty = !state.settings_saved.is_empty()
-        && read_settings_form(ui).snapshot() != state.settings_saved;
+        && match read_settings_form(ui) {
+            Ok(form) => form.snapshot() != state.settings_saved,
+            // An unresolved Java selection is definitely a change.
+            Err(_) => true,
+        };
     if dirty != state.settings_dirty {
         state.settings_dirty = dirty;
         ui.set_settings_dirty(dirty);
@@ -781,7 +795,16 @@ fn ensure_wizard(state: &Rc<RefCell<State>>) {
             let id = wiz.get_wiz_id().trim().to_string();
             let name = wiz.get_wiz_name().trim().to_string();
             let work_dir = wiz.get_wiz_work_dir().trim().to_string();
-            let java_path = wiz.get_wiz_java().trim().to_string();
+            let java_path = match resolve_java_path(
+                &wiz.get_wiz_java(),
+                &wiz.get_wiz_java_custom(),
+            ) {
+                Ok(path) => path,
+                Err(e) => {
+                    wiz.set_wiz_error(e.into());
+                    return;
+                }
+            };
             let min_ram: u32 = wiz.get_wiz_min_ram().parse().unwrap_or(0);
             let max_ram: u32 = wiz.get_wiz_max_ram().parse().unwrap_or(0);
             let preset = wiz.get_wiz_preset().to_string();
@@ -1263,7 +1286,13 @@ fn main() -> Result<(), slint::PlatformError> {
             if id.is_empty() {
                 return;
             }
-            let form = read_settings_form(&ui);
+            let form = match read_settings_form(&ui) {
+                Ok(form) => form,
+                Err(e) => {
+                    ui.set_settings_error(e.into());
+                    return;
+                }
+            };
             if let Err(e) = form.validate() {
                 ui.set_settings_error(e.into());
                 return;
@@ -1712,7 +1741,9 @@ fn main() -> Result<(), slint::PlatformError> {
                         }
                     }
                     UiMsg::ConfigSaved(Ok(())) => {
-                        st.settings_saved = read_settings_form(&ui).snapshot();
+                        if let Ok(form) = read_settings_form(&ui) {
+                            st.settings_saved = form.snapshot();
+                        }
                         st.settings_dirty = false;
                         ui.set_settings_dirty(false);
                         ui.set_settings_error("".into());
@@ -1906,6 +1937,7 @@ fn apply_settings(ui: &App, state: &mut State, value: &serde_json::Value) {
     ui.set_settings_name(form.name.into());
     ui.set_settings_work_dir(form.work_dir.into());
     ui.set_settings_java(form.java_path.into());
+    ui.set_settings_java_wrapper(form.java_wrapper.into());
     ui.set_settings_min_ram(form.min_ram_mb.to_string().into());
     ui.set_settings_max_ram(form.max_ram_mb.to_string().into());
     ui.set_settings_preset(form.preset.into());

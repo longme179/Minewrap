@@ -276,6 +276,7 @@ export component App inherits Window {
     in-out property <string> settings-restart-reset-after: "600";
     in-out property <[string]> settings-java-items: ["java"];
     in-out property <string> settings-java-custom: "";
+    in-out property <string> settings-java-wrapper: "";
     in-out property <string> settings-error: "";
     in-out property <string> settings-status: "";
     in-out property <string> settings-scan-note: "";
@@ -885,6 +886,18 @@ export component App inherits Window {
                                                     root.settings-java = root.settings-java-custom;
                                                     root.settings-touched();
                                                 }
+                                                accepted => { root.settings-save(); }
+                                            }
+                                        }
+                                        HorizontalLayout { spacing: Theme.space-8;
+                                            Text { text: "Java wrapper"; color: Theme.muted-fg; font-size: Theme.text-sm; width: Theme.w-120; }
+                                            LineEdit {
+                                                text <=> root.settings-java-wrapper;
+                                                placeholder-text: "env LD_PRELOAD=/usr/lib64/libmimalloc.so.2";
+                                                font-family: "Noto Sans Mono";
+                                                font-size: Theme.text-base;
+                                                horizontal-stretch: 1;
+                                                edited => { root.settings-touched(); }
                                                 accepted => { root.settings-save(); }
                                             }
                                         }

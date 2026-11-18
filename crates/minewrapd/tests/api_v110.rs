@@ -34,6 +34,7 @@ fn instance(id: &str, work_dir: &str, java: &str) -> InstanceConfig {
         name: String::new(),
         work_dir: work_dir.into(),
         java_path: java.into(),
+        java_wrapper: vec![],
         jvm_args: vec![],
         launch_args: vec![],
         autostart: false,
