@@ -111,6 +111,7 @@ mod tests {
             name: String::new(),
             work_dir: "/tmp".into(),
             java_path: "java".into(),
+            java_wrapper: vec![],
             jvm_args: vec![],
             launch_args: vec![],
             autostart: false,
