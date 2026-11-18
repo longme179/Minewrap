@@ -84,7 +84,9 @@ export global Theme {
     out property <length> h-44: 44px;
     out property <length> h-90: 90px;
     out property <length> h-100: 100px;
-    out property <length> overlay-y: 92px;
+    // Below top bar + tab strip: top padding 16 + top bar 40 + spacing 8
+    // + tabs 28 + spacing 8 (mirrors console-col's 16px outer margins).
+    out property <length> overlay-y: 100px;
     out property <length> line-h: 22px;
     out property <length> w-62: 62px;
     out property <length> w-72: 72px;
@@ -277,6 +279,10 @@ export component App inherits Window {
     in-out property <[string]> settings-java-items: ["java"];
     in-out property <string> settings-java-custom: "";
     in-out property <string> settings-java-wrapper: "";
+    // Older daemons omit java_wrapper from GET …/config and silently drop
+    // it from PATCH; Rust flips this to false so the UI can warn instead
+    // of claiming the wrapper was saved. Defaults to true (no flicker).
+    in-out property <bool> settings-wrapper-supported: true;
     in-out property <string> settings-error: "";
     in-out property <string> settings-status: "";
     in-out property <string> settings-scan-note: "";
@@ -436,6 +442,9 @@ export component App inherits Window {
 
         VerticalLayout {
             spacing: 0px;
+            // Window-level bottom margin: the status bar must not touch the
+            // window edge (its own container is outside console-col).
+            padding-bottom: Theme.space-16;
             HorizontalLayout {
                 spacing: 0px;
                 // ---- sidebar: nodes grouped, instances nested ----
@@ -446,7 +455,8 @@ export component App inherits Window {
                         width: parent.width;
                         height: parent.height;
                         VerticalLayout {
-                            padding: Theme.space-10;
+                            // Window-level margin: keep every outer edge >= 16px.
+                            padding: Theme.space-16;
                             spacing: Theme.space-6;
                             Text {
                                 text: "NODES";
@@ -540,9 +550,12 @@ export component App inherits Window {
                     width: parent.width;
                     height: parent.height;
                     spacing: Theme.space-8;
-                    padding-left: Theme.space-8;
-                    padding-right: Theme.space-8;
-                    padding-top: Theme.space-8;
+                    // Window-level margins: Remove, status bar and console
+                    // must never sit closer than 16px to the window edge.
+                    padding-left: Theme.space-16;
+                    padding-right: Theme.space-16;
+                    padding-top: Theme.space-16;
+                    padding-bottom: Theme.space-16;
                     // top bar: selected instance + controls
                     HorizontalLayout {
                         height: Theme.h-40;
@@ -805,7 +818,7 @@ export component App inherits Window {
                     // ---- settings overlay ----
                     // Starts BELOW the top bar + tab row so those stay
                     // visible and clickable while Settings is open
-                    // (Theme.overlay-y = 8 padding + 40 top bar + 8 spacing + 28 tabs
+                    // (Theme.overlay-y = 16 padding + 40 top bar + 8 spacing + 28 tabs
                     // + 8 spacing, mirroring console-col's layout).
                     Rectangle {
                         visible: root.settings-tab == 1;
@@ -821,7 +834,8 @@ export component App inherits Window {
                             height: parent.height;
                             VerticalLayout {
                                 spacing: Theme.space-12;
-                                padding: Theme.space-10;
+                                // Window-level overlay margin (always >= 16px).
+                                padding: Theme.space-16;
 
                                 HorizontalLayout {
                                     spacing: Theme.space-8;
@@ -894,10 +908,11 @@ export component App inherits Window {
                                                 font-family: "Noto Sans Mono";
                                                 font-size: Theme.text-base;
                                                 horizontal-stretch: 1;
-                                                edited => {
-                                                    root.settings-java = root.settings-java-custom;
-                                                    root.settings-touched();
-                                                }
+                                                // Keep the "Custom path…" sentinel selected while
+                                                // typing: resolve_java_path() turns it into this
+                                                // field only on Save. Assigning here hid the row
+                                                // on the first keystroke.
+                                                edited => { root.settings-touched(); }
                                                 accepted => { root.settings-save(); }
                                             }
                                         }
@@ -905,13 +920,27 @@ export component App inherits Window {
                                             Text { text: "Java wrapper"; color: Theme.muted-fg; font-size: Theme.text-sm; width: Theme.w-120; }
                                             LineEdit {
                                                 text <=> root.settings-java-wrapper;
-                                                placeholder-text: "env LD_PRELOAD=/usr/lib64/libmimalloc.so.2";
+                                                placeholder-text: "env LD_PRELOAD=/usr/lib64/libmimalloc.so.2 MALLOC_ARENA_MAX=2";
                                                 font-family: "Noto Sans Mono";
                                                 font-size: Theme.text-base;
                                                 horizontal-stretch: 1;
                                                 edited => { root.settings-touched(); }
                                                 accepted => { root.settings-save(); }
                                             }
+                                        }
+                                        Text {
+                                            text: "Wrapper elements are separated by spaces; values containing spaces are not supported.";
+                                            color: Theme.muted-fg;
+                                            font-size: Theme.text-sm;
+                                            wrap: word-wrap;
+                                        }
+                                        Text {
+                                            visible: !root.settings-wrapper-supported
+                                                && root.settings-java-wrapper != "";
+                                            text: "This daemon build does not support the Java wrapper — restart minewrapd with the new build, then reopen Settings.";
+                                            color: Theme.warn;
+                                            font-size: Theme.text-sm;
+                                            wrap: word-wrap;
                                         }
 
                                         HorizontalLayout { spacing: Theme.space-8;
@@ -1129,7 +1158,8 @@ export component App inherits Window {
                             height: parent.height;
                             VerticalLayout {
                                 spacing: Theme.space-12;
-                                padding: Theme.space-10;
+                                // Window-level overlay margin (always >= 16px).
+                                padding: Theme.space-16;
 
                                 HorizontalLayout {
                                     spacing: Theme.space-8;
@@ -1223,7 +1253,8 @@ export component App inherits Window {
                             height: parent.height;
                             VerticalLayout {
                                 spacing: Theme.space-12;
-                                padding: Theme.space-10;
+                                // Window-level overlay margin (always >= 16px).
+                                padding: Theme.space-16;
 
                                 HorizontalLayout {
                                     spacing: Theme.space-8;
@@ -1324,7 +1355,8 @@ export component App inherits Window {
                             height: parent.height;
                             VerticalLayout {
                                 spacing: Theme.space-12;
-                                padding: Theme.space-10;
+                                // Window-level overlay margin (always >= 16px).
+                                padding: Theme.space-16;
 
                                 HorizontalLayout {
                                     spacing: Theme.space-8;
@@ -1559,8 +1591,11 @@ export component App inherits Window {
                 height: Theme.h-26;
                 background: Theme.card;
                     HorizontalLayout {
-                        padding-left: Theme.space-10;
-                        padding-right: Theme.space-18;
+                        // Right edge clears the window by this 16px padding;
+                        // bottom edge clears it via the root layout's 16px
+                        // bottom padding (this bar is outside console-col).
+                        padding-left: Theme.space-16;
+                        padding-right: Theme.space-16;
                         spacing: Theme.space-12;
                         Rectangle {
                             width: Theme.space-8; height: Theme.space-8; border-radius: Theme.radius-xs;
@@ -1822,7 +1857,7 @@ export component WizardWindow inherits Window {
                         font-family: "Noto Sans Mono";
                         font-size: Theme.text-base;
                         horizontal-stretch: 1;
-                        edited => { root.wiz-java = root.wiz-java-custom; }
+                        // Keep the sentinel selected; Rust resolves it on submit.
                         accepted => { root.submit(); }
                     }
                 }
